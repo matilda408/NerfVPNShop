@@ -1,16 +1,16 @@
 from aiogram.enums import ButtonStyle
 from aiogram_dialog import Dialog, StartMode, Window
-from aiogram_dialog.widgets.kbd import Button, Column, Group, Row, Select, SwitchTo, Url
+from aiogram_dialog.widgets.kbd import Button, Column, Group, Row, Select, Start, SwitchTo, Url
 from aiogram_dialog.widgets.style import Style
 from aiogram_dialog.widgets.text import Format
 from magic_filter import F
 
 from src.core.constants import PAYMENT_PREFIX
 from src.core.enums import BannerName, PurchaseType
-from src.telegram.keyboards import back_main_menu_button, connect_buttons
+from src.telegram.keyboards import back_main_menu_button
 from src.telegram.states import MainMenu, Subscription
 from src.telegram.widgets import Banner, I18nFormat, IgnoreUpdate
-from src.telegram.widgets.icon_buttons import IconButton, IconSelect
+from src.telegram.widgets.icon_buttons import IconButton, IconSelect, IconSwitchTo
 from src.telegram.widgets.icon_start import IconStart
 
 from .getters import (
@@ -51,18 +51,19 @@ subscription = Window(
             when=F["trial_available"],
             style=Style(ButtonStyle.SUCCESS),
         ),
-        Button(
+        IconButton(
             text=I18nFormat("btn-subscription.renew"),
-            id=f"{PAYMENT_PREFIX}{PurchaseType.RENEW}",
-            on_click=on_subscription_plans,
-            when=F["has_active_subscription"] & F["is_not_unlimited"],
-        ),
-        Button(
-            text=I18nFormat("btn-subscription.change"),
             id=f"{PAYMENT_PREFIX}{PurchaseType.CHANGE}",
             on_click=on_subscription_plans,
-            when=F["has_active_subscription"],
+            when=F["has_active_subscription"] & F["is_not_unlimited"],
+            icon_custom_emoji_id="5258108352008823107",
         ),
+        # Button(
+        #     text=I18nFormat("btn-subscription.change"),
+        #     id=f"{PAYMENT_PREFIX}{PurchaseType.CHANGE}",
+        #     on_click=on_subscription_plans,
+        #     when=F["has_active_subscription"],
+        # ),
     ),
     # Row(
     #     Button(
@@ -70,6 +71,36 @@ subscription = Window(
     #         id=f"{PAYMENT_PREFIX}promocode",
     #         on_click=show_dev_popup,
     #         # state=Subscription.PROMOCODE,
+    #     ),
+    # ),
+    Row(
+        IconStart(
+            text=I18nFormat("btn-menu.instruction"),
+            id=f"{PAYMENT_PREFIX}instruction",
+            state=MainMenu.INSTRUCTION,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="5258328383183396223",
+        ),
+    ),
+    Row(
+        IconStart(
+            text=I18nFormat("btn-devices.delete-device"),
+            id=f"{PAYMENT_PREFIX}delete_device",
+            state=MainMenu.DEVICES,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="5258130763148172425",
+        ),
+    ),
+    # Row(
+    #     IconStart(
+    #         text=I18nFormat("btn-devices.reissue"),
+    #         id=f"{PAYMENT_PREFIX}reissue_subscription",
+    #         state=MainMenu.DEVICE_CONFIRM_REISSUE,
+    #         mode=StartMode.RESET_STACK,
+    #         when=F["connectable"],
+    #         icon_custom_emoji_id="6030657343744644592",
     #     ),
     # ),
     Row(
@@ -191,22 +222,29 @@ payment_method = Window(
         ),
     ),
     Row(
-        SwitchTo(
-            text=I18nFormat("btn-subscription.back-duration"),
-            id=f"{PAYMENT_PREFIX}back",
+        IconSwitchTo(
+            text=I18nFormat("btn-back.general"),
+            id=f"{PAYMENT_PREFIX}back_duration",
             state=Subscription.DURATION,
             when=~F["only_single_duration"],
+            icon_custom_emoji_id="5258236805890710909",
         ),
-    ),
-    Row(
-        SwitchTo(
-            text=I18nFormat("btn-subscription.back-plans"),
+        IconSwitchTo(
+            text=I18nFormat("btn-back.general"),
             id=f"{PAYMENT_PREFIX}back_plans",
             state=Subscription.PLANS,
-            when=~F["only_single_plan"],
+            when=F["only_single_duration"] & ~F["only_single_plan"],
+            icon_custom_emoji_id="5258236805890710909",
+        ),
+        IconStart(
+            text=I18nFormat("btn-back.general"),
+            id=f"{PAYMENT_PREFIX}back_main",
+            state=MainMenu.MAIN,
+            mode=StartMode.RESET_STACK,
+            when=F["only_single_duration"] & F["only_single_plan"],
+            icon_custom_emoji_id="5258236805890710909",
         ),
     ),
-    *back_main_menu_button,
     IgnoreUpdate(),
     state=Subscription.PAYMENT_METHOD,
     getter=payment_method_getter,
@@ -231,28 +269,40 @@ confirm = Window(
         ),
     ),
     Row(
-        SwitchTo(
-            text=I18nFormat("btn-subscription.back-payment-method"),
+        IconSwitchTo(
+            text=I18nFormat("btn-back.general"),
             id=f"{PAYMENT_PREFIX}back_payment_method",
             state=Subscription.PAYMENT_METHOD,
             when=~F["only_single_gateway"] & ~F["is_free"],
+            icon_custom_emoji_id="5258236805890710909",
         ),
-        SwitchTo(
-            text=I18nFormat("btn-subscription.back-duration"),
+        IconSwitchTo(
+            text=I18nFormat("btn-back.general"),
             id=f"{PAYMENT_PREFIX}back_duration",
             state=Subscription.DURATION,
-            when=F["only_single_gateway"] & ~F["only_single_duration"] | F["is_free"],
+            when=(F["only_single_gateway"] | F["is_free"]) & ~F["only_single_duration"],
+            icon_custom_emoji_id="5258236805890710909",
         ),
-    ),
-    Row(
-        SwitchTo(
-            text=I18nFormat("btn-subscription.back-plans"),
+        IconSwitchTo(
+            text=I18nFormat("btn-back.general"),
             id=f"{PAYMENT_PREFIX}back_plans",
             state=Subscription.PLANS,
-            when=~F["only_single_plan"],
+            when=(F["only_single_gateway"] | F["is_free"])
+            & F["only_single_duration"]
+            & ~F["only_single_plan"],
+            icon_custom_emoji_id="5258236805890710909",
+        ),
+        IconStart(
+            text=I18nFormat("btn-back.general"),
+            id=f"{PAYMENT_PREFIX}back_main",
+            state=MainMenu.MAIN,
+            mode=StartMode.RESET_STACK,
+            when=(F["only_single_gateway"] | F["is_free"])
+            & F["only_single_duration"]
+            & F["only_single_plan"],
+            icon_custom_emoji_id="5258236805890710909",
         ),
     ),
-    *back_main_menu_button,
     IgnoreUpdate(),
     state=Subscription.CONFIRM,
     getter=confirm_getter,
@@ -262,7 +312,40 @@ success_payment = Window(
     Banner(BannerName.SUBSCRIPTION),
     I18nFormat("msg-subscription-success"),
     Row(
-        *connect_buttons,
+        IconStart(
+            text=I18nFormat("btn-instruction.ios"),
+            id=f"{PAYMENT_PREFIX}instruction_ios",
+            state=MainMenu.INSTRUCTION_IOS,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="5775870512127283512",
+        ),
+        IconStart(
+            text=I18nFormat("btn-instruction.android"),
+            id=f"{PAYMENT_PREFIX}instruction_android",
+            state=MainMenu.INSTRUCTION_ANDROID,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="5100720104375583787",
+        ),
+    ),
+    Row(
+        IconStart(
+            text=I18nFormat("btn-instruction.windows"),
+            id=f"{PAYMENT_PREFIX}instruction_windows",
+            state=MainMenu.INSTRUCTION_WINDOWS,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="4976701317385814718",
+        ),
+        IconStart(
+            text=I18nFormat("btn-instruction.macos"),
+            id=f"{PAYMENT_PREFIX}instruction_macos",
+            state=MainMenu.INSTRUCTION_MACOS,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="5775870512127283512",
+        ),
     ),
     *back_main_menu_button,
     IgnoreUpdate(),
@@ -274,7 +357,40 @@ success_trial = Window(
     Banner(BannerName.SUBSCRIPTION),
     I18nFormat("msg-subscription-trial"),
     Row(
-        *connect_buttons,
+        IconStart(
+            text=I18nFormat("btn-instruction.ios"),
+            id=f"{PAYMENT_PREFIX}instruction_trial_ios",
+            state=MainMenu.INSTRUCTION_IOS,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="5775870512127283512",
+        ),
+        IconStart(
+            text=I18nFormat("btn-instruction.android"),
+            id=f"{PAYMENT_PREFIX}instruction_trial_android",
+            state=MainMenu.INSTRUCTION_ANDROID,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="5100720104375583787",
+        ),
+    ),
+    Row(
+        IconStart(
+            text=I18nFormat("btn-instruction.windows"),
+            id=f"{PAYMENT_PREFIX}instruction_trial_windows",
+            state=MainMenu.INSTRUCTION_WINDOWS,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="4976701317385814718",
+        ),
+        IconStart(
+            text=I18nFormat("btn-instruction.macos"),
+            id=f"{PAYMENT_PREFIX}instruction_trial_macos",
+            state=MainMenu.INSTRUCTION_MACOS,
+            mode=StartMode.RESET_STACK,
+            when=F["connectable"],
+            icon_custom_emoji_id="5775870512127283512",
+        ),
     ),
     *back_main_menu_button,
     IgnoreUpdate(),

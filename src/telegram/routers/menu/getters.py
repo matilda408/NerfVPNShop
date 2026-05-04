@@ -1,5 +1,5 @@
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from aiogram_dialog import DialogManager
 from dishka import FromDishka
@@ -27,6 +27,21 @@ PRIVACY_POLICY_URL = "https://telegra.ph/POLITIKA-KONFIDENCIALNOSTI-NERF-VPN-05-
 INVITE_SHARE_TEXT = (
     "Привет, я использую Nerf VPN для быстрого и безопасного интернета. Присоединяйся!"
 )
+
+
+def make_happ_open_url(subscription_url: str) -> str:
+    url_parts = urlsplit(subscription_url)
+    query = dict(parse_qsl(url_parts.query, keep_blank_values=True))
+    query["open"] = "happ"
+    return urlunsplit(
+        (
+            url_parts.scheme,
+            url_parts.netloc,
+            url_parts.path,
+            urlencode(query),
+            url_parts.fragment,
+        )
+    )
 
 
 @inject
@@ -79,6 +94,8 @@ async def menu_getter(
             "expire_time": None,
             "reset_time": None,
             "connection_url": None,
+            "subscription_url": None,
+            "happ_connection_url": None,
             "row_1_buttons": [b for b in menu_data.custom_buttons if b.index in (1, 2)],
             "row_2_buttons": [b for b in menu_data.custom_buttons if b.index in (3, 4)],
             "row_3_buttons": [b for b in menu_data.custom_buttons if b.index in (5, 6)],
@@ -117,6 +134,10 @@ async def menu_getter(
                 "connection_url": config.bot.mini_app_url
                 if isinstance(config.bot.mini_app_url, str)
                 else subscription.url,
+                "subscription_url": subscription.url,
+                "happ_connection_url": (
+                    make_happ_open_url(subscription.url) if subscription.is_active else None
+                ),
             }
         )
         logger.debug(f"Menu data for user {user.telegram_id}: {data}")

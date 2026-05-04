@@ -229,6 +229,7 @@ class UserNotificationType(UpperStrEnum):
     EXPIRES_IN_3_DAYS = auto()
     EXPIRES_IN_2_DAYS = auto()
     EXPIRES_IN_1_DAY = auto()
+    EXPIRES_IN_1_HOUR = auto()
     #
     EXPIRED = auto()
     EXPIRED_1_DAY_AGO = auto()

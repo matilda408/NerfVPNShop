@@ -27,7 +27,7 @@ from src.application.use_cases.remnawave.commands.synchronization import (
     SyncRemnaUserDto,
 )
 from src.core.constants import DATETIME_FORMAT, IMPORTED_TAG
-from src.core.enums import SubscriptionStatus
+from src.core.enums import SubscriptionStatus, UserNotificationType
 from src.core.types import RemnaUserDto
 from src.core.utils.converters import country_code_to_flag
 from src.core.utils.i18n_helpers import (
@@ -115,11 +115,17 @@ class RemnaWebhookService:
                 RemnaUserEvent.EXPIRES_IN_48_HOURS: 2,
                 RemnaUserEvent.EXPIRES_IN_24_HOURS: 1,
             }
+            notification_type_map: dict[str, UserNotificationType] = {
+                RemnaUserEvent.EXPIRES_IN_72_HOURS: UserNotificationType.EXPIRES_IN_3_DAYS,
+                RemnaUserEvent.EXPIRES_IN_48_HOURS: UserNotificationType.EXPIRES_IN_2_DAYS,
+                RemnaUserEvent.EXPIRES_IN_24_HOURS: UserNotificationType.EXPIRES_IN_1_DAY,
+            }
             await self.event_bus.publish(
                 SubscriptionExpiresEvent(
                     day=expire_map[event],
                     user=user,
                     is_trial=current_subscription.is_trial,
+                    notification_type=notification_type_map[event],
                 )
             )
 

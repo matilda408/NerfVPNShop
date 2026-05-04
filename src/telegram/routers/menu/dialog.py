@@ -1,4 +1,5 @@
 from aiogram.enums import ButtonStyle
+from aiogram.fsm.state import State
 from aiogram_dialog import Dialog, StartMode
 from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import (
@@ -44,7 +45,13 @@ from .handlers import (
     on_reissue_subscription_confirm,
 )
 
-INSTRUCTION_URL = "https://telegra.ph/Instrukciya-po-podklyucheniyu-nashego-VPN-05-02"
+INSTRUCTION_EMPTY_LINK = "https://example.com"
+INSTRUCTION_DOWNLOAD_URLS = {
+    "ios": "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
+    "android": "https://play.google.com/store/apps/details?id=com.happproxy&pli=1",
+    "windows": "https://github.com/pluralplay/FlClashX/releases/latest/download/FlClashX-windows-amd64-setup.exe",
+    "macos": "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
+}
 
 menu = Window(
     Banner(BannerName.MENU),
@@ -84,10 +91,10 @@ menu = Window(
             state=Subscription.MAIN,
             icon_custom_emoji_id="5257969839313526622",
         ),
-        IconUrl(
+        IconSwitchTo(
             text=I18nFormat("btn-menu.instruction"),
             id="instruction",
-            url=Format(INSTRUCTION_URL),
+            state=MainMenu.INSTRUCTION,
             icon_custom_emoji_id="5258328383183396223",
         ),
     ),
@@ -135,13 +142,13 @@ menu = Window(
 devices = Window(
     Banner(BannerName.MENU),
     I18nFormat("msg-menu-devices"),
-    Row(
-        Button(
-            text=I18nFormat("btn-common.devices-empty"),
-            id="devices_empty",
-            when=~F["has_devices"],
-        ),
-    ),
+    # Row(
+    #     Button(
+    #         text=I18nFormat("btn-common.devices-empty"),
+    #         id="devices_empty",
+    #         when=~F["has_devices"],
+    #     ),
+    # ),
     ListGroup(
         Row(
             Button(
@@ -155,23 +162,14 @@ devices = Window(
         items="devices",
         when=F["has_devices"],
     ),
-    Row(
-        Start(
-            text=I18nFormat("btn-devices.delete-all"),
-            id="delete_all",
-            state=MainMenu.DEVICE_CONFIRM_DELETE_ALL,
-            when=F["has_devices"],
-            style=Style(ButtonStyle.DANGER),
-        ),
-    ),
-    Row(
-        Start(
-            text=I18nFormat("btn-devices.reissue"),
-            id="reissue",
-            state=MainMenu.DEVICE_CONFIRM_REISSUE,
-            style=Style(ButtonStyle.PRIMARY),
-        ),
-    ),
+    # Row(
+    #     Start(
+    #         text=I18nFormat("btn-devices.reissue"),
+    #         id="reissue",
+    #         state=MainMenu.DEVICE_CONFIRM_REISSUE,
+    #         style=Style(ButtonStyle.PRIMARY),
+    #     ),
+    # ),
     Row(
         IconSwitchTo(
             text=I18nFormat("btn-back.general"),
@@ -225,6 +223,126 @@ support = Window(
     getter=menu_getter,
 )
 
+instruction = Window(
+    Banner(BannerName.HELP),
+    I18nFormat("msg-menu-instruction"),
+    Row(
+        IconSwitchTo(
+            text=I18nFormat("btn-instruction.ios"),
+            id="instruction_ios",
+            state=MainMenu.INSTRUCTION_IOS,
+            when=F["has_active_subscription"],
+            icon_custom_emoji_id="5775870512127283512",
+        ),
+        IconSwitchTo(
+            text=I18nFormat("btn-instruction.android"),
+            id="instruction_android",
+            state=MainMenu.INSTRUCTION_ANDROID,
+            when=F["has_active_subscription"],
+            icon_custom_emoji_id="5100720104375583787",
+        ),
+    ),
+    Row(
+        IconSwitchTo(
+            text=I18nFormat("btn-instruction.windows"),
+            id="instruction_windows",
+            state=MainMenu.INSTRUCTION_WINDOWS,
+            when=F["has_active_subscription"],
+            icon_custom_emoji_id="4976701317385814718",
+        ),
+        IconSwitchTo(
+            text=I18nFormat("btn-instruction.macos"),
+            id="instruction_macos",
+            state=MainMenu.INSTRUCTION_MACOS,
+            when=F["has_active_subscription"],
+            icon_custom_emoji_id="5775870512127283512",
+        ),
+    ),
+    Row(
+        IconStart(
+            text=I18nFormat("btn-subscription.new"),
+            id=f"{PAYMENT_PREFIX}instruction_new",
+            state=Subscription.PLANS,
+            data={"purchase_type": PurchaseType.NEW},
+            when=~F["has_active_subscription"],
+            icon_custom_emoji_id="5258204546391351475",
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-menu.trial"),
+            id="instruction_trial",
+            on_click=on_get_trial,
+            when=~F["has_active_subscription"] & F["trial_available"],
+            style=Style(ButtonStyle.SUCCESS),
+        ),
+    ),
+    Row(
+        IconSwitchTo(
+            text=I18nFormat("btn-instruction.back"),
+            id="back",
+            state=MainMenu.MAIN,
+            icon_custom_emoji_id="5258236805890710909",
+        ),
+    ),
+    IgnoreUpdate(),
+    state=MainMenu.INSTRUCTION,
+    getter=menu_getter,
+)
+
+
+def instruction_platform_window(state: State, download_url: str) -> Window:
+    return Window(
+        Banner(BannerName.HELP),
+        I18nFormat("msg-menu-instruction-platform"),
+        Row(
+            IconUrl(
+                text=I18nFormat("btn-instruction.download"),
+                id="download_app",
+                url=Format(download_url),
+                icon_custom_emoji_id="5258336354642697821",
+            ),
+        ),
+        Row(
+            IconUrl(
+                text=I18nFormat("btn-instruction.connect"),
+                id="connect_app",
+                url=Format("{happ_connection_url}"),
+                when=F["happ_connection_url"],
+                icon_custom_emoji_id="5884428842780594914",
+            ),
+        ),
+        Row(
+            IconSwitchTo(
+                text=I18nFormat("btn-instruction.back"),
+                id="back",
+                state=MainMenu.INSTRUCTION,
+                icon_custom_emoji_id="5258236805890710909",
+            ),
+        ),
+        IgnoreUpdate(),
+        state=state,
+        getter=menu_getter,
+    )
+
+
+instruction_ios = instruction_platform_window(
+    state=MainMenu.INSTRUCTION_IOS,
+    download_url=INSTRUCTION_DOWNLOAD_URLS["ios"],
+)
+instruction_android = instruction_platform_window(
+    state=MainMenu.INSTRUCTION_ANDROID,
+    download_url=INSTRUCTION_DOWNLOAD_URLS["android"],
+)
+instruction_windows = instruction_platform_window(
+    state=MainMenu.INSTRUCTION_WINDOWS,
+    download_url=INSTRUCTION_DOWNLOAD_URLS["windows"],
+)
+instruction_macos = instruction_platform_window(
+    state=MainMenu.INSTRUCTION_MACOS,
+    download_url=INSTRUCTION_DOWNLOAD_URLS["macos"],
+)
+
 device_confirm_delete = Window(
     Banner(BannerName.MENU),
     I18nFormat("msg-menu-devices-confirm-delete"),
@@ -233,7 +351,6 @@ device_confirm_delete = Window(
             text=I18nFormat("btn-devices.confirm-delete"),
             id="confirm_delete",
             on_click=on_device_delete_confirm,
-            style=Style(ButtonStyle.DANGER),
         ),
         SwitchTo(
             text=I18nFormat("btn-common.cancel"),
@@ -254,7 +371,6 @@ device_confirm_delete_all = Window(
             text=I18nFormat("btn-devices.confirm-delete"),
             id="confirm_delete_all",
             on_click=on_device_delete_all_confirm,
-            style=Style(ButtonStyle.DANGER),
         ),
         SwitchTo(
             text=I18nFormat("btn-common.cancel"),
@@ -299,7 +415,6 @@ device_confirm_reissue = Window(
             text=I18nFormat("btn-devices.confirm-reissue"),
             id="confirm_reissue",
             on_click=on_reissue_subscription_confirm,
-            style=Style(ButtonStyle.DANGER),
         ),
         SwitchTo(
             text=I18nFormat("btn-devices.cancel-reissue"),
@@ -316,6 +431,11 @@ router = Dialog(
     menu,
     devices,
     support,
+    instruction,
+    instruction_ios,
+    instruction_android,
+    instruction_windows,
+    instruction_macos,
     device_confirm_delete,
     device_confirm_delete_all,
     device_confirm_reissue,

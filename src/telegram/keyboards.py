@@ -5,7 +5,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram_dialog import StartMode
 from aiogram_dialog.widgets.kbd import CopyText, Group, ListGroup, Row, Start, Url, WebApp
-from aiogram_dialog.widgets.style import Style
 from aiogram_dialog.widgets.text import Format
 from magic_filter import F
 
@@ -50,23 +49,6 @@ custom_buttons = (
     build_buttons_row(3),
 )
 
-
-connect_buttons = (
-    WebApp(
-        text=I18nFormat("btn-menu.connect"),
-        url=Format("{connection_url}"),
-        id="connect_miniapp",
-        when=F["is_mini_app"] & F["connectable"],
-        style=Style(ButtonStyle.PRIMARY),
-    ),
-    Url(
-        text=I18nFormat("btn-menu.connect"),
-        url=Format("{connection_url}"),
-        id="connect_sub_page",
-        when=~F["is_mini_app"] & F["connectable"],
-        style=Style(ButtonStyle.PRIMARY),
-    ),
-)
 
 main_menu_button = (
     Start(

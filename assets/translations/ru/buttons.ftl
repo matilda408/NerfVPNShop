@@ -20,8 +20,8 @@ btn-common =
     }
 
 btn-devices =
-    .delete-all = 🗑 Удалить все устройства
-    .reissue = 🔄 Перевыпустить подписку
+    .delete-device = Удалить устройство
+    .reissue = Перевыпустить подписку
     .confirm-delete = ✅ Да, удалить
     .confirm-reissue = ✅ Да, сбросить
     .cancel-reissue = ❌ Нет
@@ -67,6 +67,15 @@ btn-support =
     .user-agreement = Пользовательское соглашение
     .privacy-policy = Политика конфиденциальности
     .contact = Написать в поддержку
+
+btn-instruction =
+    .ios = iPhone/iPad
+    .android = Android
+    .windows = Windows
+    .macos = MacOS
+    .download = 1. Скачать приложение
+    .connect = 2. Подключиться
+    .back = Вернуться назад
 
 btn-dashboard =
     .statistics = 📊 Статистика
@@ -345,6 +354,7 @@ btn-notifications =
     [EXPIRES_IN_3_DAYS] Подписка истекает (3 дня)
     [EXPIRES_IN_2_DAYS] Подписка истекает (2 дня)
     [EXPIRES_IN_1_DAY] Подписка истекает (1 день)
+    [EXPIRES_IN_1_HOUR] Подписка истекает (1 час)
     [EXPIRED] Подписка истекла
     [EXPIRED_1_DAY_AGO] Подписка истекла (1 день)
     [LIMITED] Трафик исчерпан
@@ -461,7 +471,7 @@ btn-importer =
 btn-subscription =
     .plan = 💳 Перейти к оформлению подписки
     .new = Купить подписку
-    .renew = 🔄 Продлить
+    .renew = Продлить
     .change = 🔃 Изменить
     .promocode = 🎟 Активировать промокод
     .payment-method = { $payment_label } | { $final_amount ->
