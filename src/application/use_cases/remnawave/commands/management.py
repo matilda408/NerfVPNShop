@@ -8,7 +8,9 @@ from src.application.common import Interactor
 from src.application.common.dao import SubscriptionDao
 from src.application.common.policy import Permission
 from src.application.common.remnawave import Remnawave
+from src.application.common.uow import UnitOfWork
 from src.application.dto import UserDto
+from src.core.enums import SubscriptionStatus
 
 
 @dataclass(frozen=True)
@@ -89,16 +91,37 @@ class ResetUserTraffic(Interactor[int, None]):
 class ReissueSubscription(Interactor[None, None]):
     required_permission = Permission.PUBLIC
 
-    def __init__(self, subscription_dao: SubscriptionDao, remnawave: Remnawave) -> None:
+    def __init__(
+        self,
+        uow: UnitOfWork,
+        subscription_dao: SubscriptionDao,
+        remnawave: Remnawave,
+    ) -> None:
+        self.uow = uow
         self.subscription_dao = subscription_dao
         self.remnawave = remnawave
 
     async def _execute(self, actor: UserDto, data: None) -> None:
-        current_subscription = await self.subscription_dao.get_current(actor.telegram_id)
+        async with self.uow:
+            current_subscription = await self.subscription_dao.get_current(actor.telegram_id)
 
-        if not current_subscription:
-            raise ValueError(f"No active subscription for user '{actor.telegram_id}'")
+            if not current_subscription:
+                raise ValueError(f"No active subscription for user '{actor.telegram_id}'")
 
-        await self.remnawave.revoke_subscription(current_subscription.user_remna_id)
+            remna_user = await self.remnawave.revoke_subscription(
+                current_subscription.user_remna_id
+            )
+            if not remna_user:
+                raise ValueError(
+                    f"Remna user '{current_subscription.user_remna_id}' not found after reissue"
+                )
 
-        logger.info(f"{actor.log} Reissued subscription")
+            current_subscription.status = SubscriptionStatus(remna_user.status)
+            current_subscription.expire_at = remna_user.expire_at
+            current_subscription.url = remna_user.subscription_url
+            await self.subscription_dao.update(current_subscription)
+            await self.uow.commit()
+
+        logger.info(
+            f"{actor.log} Reissued subscription and synced URL for user '{actor.telegram_id}'"
+        )

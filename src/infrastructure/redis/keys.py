@@ -34,6 +34,12 @@ class LatestNotifiedVersionKey(StorageKey, prefix="latest_notified_version"):
     version: str
 
 
+@dataclass(frozen=True)
+class SubscriptionExpiryReminderKey(StorageKey, prefix="subscription_expiry_reminder"):
+    subscription_id: int
+    expire_at: int
+
+
 class PaymentWaitlistKey(StorageKey, prefix="payment_waitlist"): ...
 
 

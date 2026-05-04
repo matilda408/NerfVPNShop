@@ -41,7 +41,7 @@ hdr-hwid = <b>📱 Устройство:</b>
 
 hdr-subscription = { $is_trial ->
     [1] <b>🎁 Пробная подписка:</b>
-    *[0] <b>💳 Подписка:</b>
+    *[0] <tg-emoji emoji-id="5260730055880876557">🛡</tg-emoji> <b>Подписка:</b>
 }
 
 hdr-plan = { $is_trial_plan ->

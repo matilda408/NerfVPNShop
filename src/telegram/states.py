@@ -11,6 +11,11 @@ class MainMenu(StatesGroup):
     DEVICE_CONFIRM_REISSUE = State()
     INVITE = State()
     INVITE_ABOUT = State()
+    INSTRUCTION = State()
+    INSTRUCTION_IOS = State()
+    INSTRUCTION_ANDROID = State()
+    INSTRUCTION_WINDOWS = State()
+    INSTRUCTION_MACOS = State()
     SUPPORT = State()
 
 

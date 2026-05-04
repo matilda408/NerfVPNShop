@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional, cast
 from uuid import UUID
 
@@ -10,7 +10,7 @@ from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.common.dao import SubscriptionDao, UserDao
-from src.application.dto import PlanSubStatsDto, SubscriptionDto, SubscriptionStatsDto
+from src.application.dto import PlanSubStatsDto, SubscriptionDto, SubscriptionStatsDto, UserDto
 from src.core.enums import SubscriptionStatus
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models import Subscription, User
@@ -37,6 +37,7 @@ class SubscriptionDaoImpl(SubscriptionDao, BaseDaoImpl):
         self._convert_to_dto_list = self.conversion_retort.get_converter(
             list[Subscription], list[SubscriptionDto]
         )
+        self._convert_user_to_dto = self.conversion_retort.get_converter(User, UserDto)
 
     async def create(self, subscription: SubscriptionDto, telegram_id: int) -> SubscriptionDto:
         subscription_data = self.retort.dump(subscription)
@@ -220,6 +221,36 @@ class SubscriptionDaoImpl(SubscriptionDao, BaseDaoImpl):
             f"Retrieved '{len(squads)}' unique internal squads from all active subscriptions"
         )
         return squads
+
+    async def get_current_expiring_between(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]:
+        stmt = (
+            select(User, Subscription)
+            .join(Subscription, User.current_subscription_id == Subscription.id)
+            .where(
+                Subscription.status == SubscriptionStatus.ACTIVE,
+                Subscription.expire_at >= start_at,
+                Subscription.expire_at <= end_at,
+                User.is_blocked.is_(False),
+                User.is_bot_blocked.is_(False),
+            )
+            .order_by(Subscription.expire_at.asc())
+        )
+
+        rows = await self.session.execute(stmt)
+        result = [
+            (self._convert_user_to_dto(user), self._convert_to_dto(subscription))
+            for user, subscription in rows.all()
+        ]
+
+        logger.debug(
+            f"Retrieved '{len(result)}' current subscriptions expiring between "
+            f"'{start_at}' and '{end_at}'"
+        )
+        return result
 
     async def count_total_trials(self) -> int:
         stmt = select(func.count(func.distinct(Subscription.user_telegram_id))).where(

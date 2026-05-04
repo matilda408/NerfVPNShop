@@ -103,6 +103,7 @@ class SubscriptionExpiresEvent(UserEvent):
 
     is_trial: bool
     day: int
+    hour: int = 0
 
     @property
     def event_key(self) -> str:
@@ -115,7 +116,11 @@ class SubscriptionExpiresEvent(UserEvent):
 
         return MessagePayloadDto(
             i18n_key=self.event_key,
-            i18n_kwargs={**asdict(self), "value": self.day},
+            i18n_kwargs={
+                **asdict(self),
+                "is_hour": int(self.hour > 0),
+                "value": self.hour or self.day,
+            },
             reply_markup=keyboard,
             disable_default_markup=False,
             delete_after=None,

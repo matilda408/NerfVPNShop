@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 from uuid import uuid4
@@ -251,24 +251,24 @@ class PurchaseSubscription(Interactor[PurchaseSubscriptionDto, None]):
                             f"No subscription found for change for user '{user.telegram_id}'"
                         )
 
-                    # Deactivate old subscription
-                    await self.subscription_dao.update_status(
-                        subscription_id=subscription.id,  # type: ignore[arg-type]
-                        status=SubscriptionStatus.DELETED,
+                    new_expire = self._get_extended_expire(
+                        subscription.expire_at,
+                        plan.duration,
                     )
+                    self._apply_plan_to_subscription(subscription, plan, new_expire)
 
                     updated_user = await self.remnawave.update_user(
                         user=user,
                         uuid=subscription.user_remna_id,
-                        plan=plan,
+                        subscription=subscription,
                         reset_traffic=True,
                     )
 
-                    new_sub = self._build_subscription_dto(updated_user, plan)
-                    await self.subscription_dao.create(
-                        subscription=new_sub,
-                        telegram_id=user.telegram_id,
-                    )
+                    subscription.status = SubscriptionStatus(updated_user.status)
+                    subscription.expire_at = updated_user.expire_at
+                    subscription.url = updated_user.subscription_url
+                    await self.subscription_dao.update(subscription)
+                    await self.user_dao.set_trial_available(user.telegram_id, False)
 
                     if user.purchase_discount:
                         user.purchase_discount = 0
@@ -300,6 +300,30 @@ class PurchaseSubscription(Interactor[PurchaseSubscriptionDto, None]):
 
                 await self.redirect.to_failed_payment(user.telegram_id)
                 raise PurchaseError(e)
+
+    @staticmethod
+    def _get_extended_expire(current_expire: datetime, duration: int) -> datetime:
+        if duration == 0:
+            return days_to_datetime(duration)
+
+        return max(current_expire, datetime_now()) + timedelta(days=duration)
+
+    @staticmethod
+    def _apply_plan_to_subscription(
+        subscription: SubscriptionDto,
+        plan: PlanSnapshotDto,
+        expire_at: datetime,
+    ) -> None:
+        subscription.status = SubscriptionStatus.ACTIVE
+        subscription.is_trial = False
+        subscription.traffic_limit = plan.traffic_limit
+        subscription.device_limit = plan.device_limit
+        subscription.traffic_limit_strategy = plan.traffic_limit_strategy
+        subscription.tag = plan.tag
+        subscription.internal_squads = plan.internal_squads
+        subscription.external_squad = plan.external_squad
+        subscription.expire_at = expire_at
+        subscription.plan_snapshot = plan
 
     def _build_subscription_dto(
         self,

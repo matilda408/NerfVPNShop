@@ -194,12 +194,18 @@ class RemnawaveImpl(Remnawave):
             logger.debug(f"RemnaUser '{uuid}' not found in panel")
             return None
 
-    async def revoke_subscription(self, uuid: UUID) -> None:
+    async def revoke_subscription(self, uuid: UUID) -> Optional[UserResponseDto]:
         try:
-            await self.sdk.users.revoke_user_subscription(uuid)
+            response = await self.sdk.users.revoke_user_subscription(uuid)
             logger.info(f"Subscription for RemnaUser '{uuid}' revoked successfully")
         except NotFoundError:
             logger.debug(f"RemnaUser '{uuid}' not found in panel")
+            return None
+
+        if isinstance(response, UserResponseDto):
+            return response
+
+        return await self.get_user_by_uuid(uuid)
 
     def apply_sync(self, target: T, source: Union[SubscriptionDto, RemnaSubscriptionDto]) -> T:
         if not is_dataclass(target) or not is_dataclass(source):

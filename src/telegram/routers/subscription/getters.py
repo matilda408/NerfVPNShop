@@ -7,7 +7,7 @@ from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 from loguru import logger
 
-from src.application.common import TranslatorRunner
+from src.application.common import Remnawave, TranslatorRunner
 from src.application.common.dao import PaymentGatewayDao, PlanDao, SettingsDao, SubscriptionDao
 from src.application.dto import PlanDto, PriceDetailsDto, UserDto
 from src.application.services import PricingService
@@ -16,6 +16,7 @@ from src.application.use_cases.user.queries.plans import GetAvailableTrial
 from src.application.use_cases.user.queries.plans import GetAvailablePlans
 from src.core.config import AppConfig
 from src.core.enums import PurchaseType
+from src.core.utils.happ import make_happ_redirect_url
 from src.core.utils.i18n_helpers import (
     i18n_format_days,
     i18n_format_device_limit,
@@ -48,6 +49,7 @@ async def subscription_getter(
     config: AppConfig,
     user: UserDto,
     subscription_dao: FromDishka[SubscriptionDao],
+    remnawave: FromDishka[Remnawave],
     get_available_trial: FromDishka[GetAvailableTrial],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -64,13 +66,28 @@ async def subscription_getter(
         "status": None,
         "traffic_limit": None,
         "device_limit": None,
+        "connected_devices_count": 0,
         "expire_time": None,
         "traffic_strategy": None,
         "reset_time": None,
+        "connection_url": None,
+        "happ_connection_url": None,
+        "connectable": False,
     }
 
     if not current_subscription:
         return data
+
+    connected_devices_count = 0
+    if current_subscription.is_active:
+        try:
+            connected_devices = await remnawave.get_devices(current_subscription.user_remna_id)
+            connected_devices_count = len(connected_devices)
+        except Exception as e:
+            logger.warning(
+                f"Failed to fetch devices for subscription "
+                f"'{current_subscription.user_remna_id}': {e}"
+            )
 
     data.update(
         {
@@ -79,8 +96,15 @@ async def subscription_getter(
             "status": current_subscription.current_status,
             "traffic_limit": i18n_format_traffic_limit(current_subscription.traffic_limit),
             "device_limit": i18n_format_device_limit(current_subscription.device_limit),
+            "connected_devices_count": connected_devices_count,
             "expire_time": i18n_format_expire_time(current_subscription.expire_at),
             "connection_url": config.bot.mini_app_url or current_subscription.url,
+            "happ_connection_url": (
+                make_happ_redirect_url(config.domain.get_secret_value(), current_subscription.url)
+                if current_subscription.is_active
+                else None
+            ),
+            "connectable": current_subscription.is_active,
             "traffic_strategy": current_subscription.traffic_limit_strategy,
             "reset_time": i18n_format_expire_time(
                 get_traffic_reset_delta(
@@ -236,6 +260,7 @@ async def payment_method_getter(
     gateways = await payment_gateway_dao.get_active()
     selected_duration = dialog_manager.dialog_data["selected_duration"]
     only_single_duration = dialog_manager.dialog_data.get("only_single_duration", False)
+    only_single_plan = dialog_manager.dialog_data.get("only_single_plan", False)
     duration = plan.get_duration(selected_duration)
 
     if not duration:
@@ -271,6 +296,7 @@ async def payment_method_getter(
         "payment_methods": payment_methods,
         "final_amount": 0,
         "currency": "",
+        "only_single_plan": only_single_plan,
         "only_single_duration": only_single_duration,
         "discount_percent": pricing_service.get_effective_discount(user),
         "is_personal_discount": pricing_service.is_largest_discount_personal(user),
@@ -297,6 +323,7 @@ async def confirm_getter(
     plan = retort.load(raw_plan, PlanDto)
     selected_duration = dialog_manager.dialog_data["selected_duration"]
     only_single_duration = dialog_manager.dialog_data.get("only_single_duration", False)
+    only_single_plan = dialog_manager.dialog_data.get("only_single_plan", False)
     is_free = dialog_manager.dialog_data.get("is_free", False)
     selected_payment_method = dialog_manager.dialog_data["selected_payment_method"]
     purchase_type = dialog_manager.dialog_data["purchase_type"]
@@ -336,6 +363,7 @@ async def confirm_getter(
         "currency": payment_gateway.currency.symbol,
         "url": result_url,
         "only_single_gateway": len(payment_options) == 1,
+        "only_single_plan": only_single_plan,
         "only_single_duration": only_single_duration,
         "is_free": is_free,
     }
@@ -357,6 +385,8 @@ async def getter_connect(
     return {
         "is_mini_app": config.bot.is_mini_app,
         "connection_url": config.bot.mini_app_url or current_subscription.url,
+        "subscription_url": current_subscription.url,
+        "device_count": current_subscription.device_limit,
         "connectable": True,
     }
 
@@ -381,9 +411,11 @@ async def success_payment_getter(
         "plan_name": subscription.plan_snapshot.name,
         "traffic_limit": i18n_format_traffic_limit(subscription.traffic_limit),
         "device_limit": i18n_format_device_limit(subscription.device_limit),
+        "device_count": subscription.device_limit,
         "expire_time": i18n_format_expire_time(subscription.expire_at),
         "added_duration": i18n_format_days(subscription.plan_snapshot.duration),
         "is_mini_app": config.bot.is_mini_app,
         "connection_url": config.bot.mini_app_url or subscription.url,
+        "subscription_url": subscription.url,
         "connectable": True,
     }

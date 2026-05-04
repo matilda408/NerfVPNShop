@@ -1,7 +1,8 @@
+from datetime import datetime
 from typing import Optional, Protocol, runtime_checkable
 from uuid import UUID
 
-from src.application.dto import PlanSubStatsDto, SubscriptionDto, SubscriptionStatsDto
+from src.application.dto import PlanSubStatsDto, SubscriptionDto, SubscriptionStatsDto, UserDto
 from src.core.enums import SubscriptionStatus
 
 
@@ -32,6 +33,12 @@ class SubscriptionDao(Protocol):
     async def count_active_by_plan(self, plan_id: int) -> int: ...
 
     async def get_all_active_internal_squads(self) -> list[UUID]: ...
+
+    async def get_current_expiring_between(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]: ...
 
     async def count_total_trials(self) -> int: ...
 

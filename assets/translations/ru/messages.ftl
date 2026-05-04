@@ -39,6 +39,29 @@ msg-menu-devices-confirm-delete-all =
 msg-menu-support =
     <tg-emoji emoji-id="5257965810634202885">🔹</tg-emoji>{ space }<b>Помощь и полезные материалы:</b>
 
+msg-menu-instruction =
+    { $has_active_subscription ->
+    [1]
+    🔑 Ключ вашей подписки к VPN. Его можно импортировать вручную, либо воспользоваться инструкцией по настройке ниже:
+    <pre><code class="language-copy">{ $subscription_url }</code></pre>
+
+    📖 Инструкции по настройке:
+    *[0]
+    😪 Похоже, у вас пока нет активной подписки, чтобы получить инструкцию по подключению.
+
+    😉 Оформите подписку на длительный период или воспользуйтесь пробным периодом 👇, и мы вышлем вам все необходимые настройки для подключения.
+    }
+
+msg-menu-instruction-platform =
+    🔑 Ключ вашей подписки к VPN. Его можно импортировать вручную, либо воспользоваться инструкцией по настройке ниже:
+    <pre><code class="language-copy">{ $subscription_url }</code></pre>
+
+    📖 <b>Инструкции по настройке:</b>
+
+    1. Установите приложение Happ нажав на кнопку "Скачать приложение"
+    2. Добавьте конфигурацию VPN нажав на кнопку "Подключиться" ниже 👇
+    3. Подключитесь к VPN в приложении Happ
+
 msg-menu-invite =
     <tg-emoji emoji-id="5258486128742244085">👥</tg-emoji> <b>Реферальная программа</b>
 
@@ -1066,7 +1089,7 @@ msg-subscription-main =
     { $status ->
     [ACTIVE]
     <blockquote>
-    • <b>Лимит устройств</b>: { $device_limit }
+    • <b>Подключено устройств</b>: { $connected_devices_count } / { $device_limit }
     • <b>Осталось</b>: { $expire_time }
     • <b>Ссылка на подписку</b>: { $connection_url }
     </blockquote>
@@ -1107,7 +1130,19 @@ msg-subscription-plans =
     <tg-emoji emoji-id="5258204546391351475">💎</tg-emoji> <b>Выбор тарифа</b>
 
     Выберите подходящий пакет подписки для доступа к VPN:
-msg-subscription-new-success = Чтобы начать пользоваться нашим сервисом, нажмите кнопку <code>`{ btn-subscription.connect }`</code> и следуйте инструкциям!
+msg-subscription-activation-guide =
+    { $device_count ->
+    [0] ☝️ Доступ предоставляется для любого количества устройств.
+    [one] ☝️ Доступ предоставляется для 1 любого устройства.
+    *[other] ☝️ Доступ предоставляется для { $device_count } любых устройств.
+    }
+
+    🆕 Чтобы подключить дополнительные устройства, оформите новую подписку.
+
+    <code>"{ $subscription_url }"</code>
+
+    Инструкции по настройке:
+
 msg-subscription-renew-success = Ваша подписка продлена на { $added_duration }.
 
 msg-subscription-plan =
@@ -1125,7 +1160,7 @@ msg-subscription-plan =
 
     { $purchase_type ->
     [RENEW] <i>⚠️ Текущая подписка будет <u>продлена</u> на выбранный срок.</i>
-    [CHANGE] <i>⚠️ Текущая подписка будет <u>заменена</u> данным планом без пересчета оставшегося срока.</i>
+    [CHANGE] <i>⚠️ Тариф будет <u>изменен</u>, срок выбранного тарифа прибавится к оставшимся дням.</i>
     *[OTHER] { empty }
     }
 
@@ -1167,7 +1202,7 @@ msg-subscription-duration =
     { msg-subscription-details }
 
 msg-subscription-payment-method =
-    <b>💳 Выберите способ оплаты</b>
+    <tg-emoji emoji-id="5258204546391351475">🛡</tg-emoji> <b>Выберите способ оплаты</b>
 
     { msg-subscription-details }
 
@@ -1182,27 +1217,22 @@ msg-subscription-confirm =
 
     { $purchase_type ->
     [RENEW] <i>⚠️ Текущая подписка будет <u>продлена</u> на выбранный срок.</i>
-    [CHANGE] <i>⚠️ Текущая подписка будет <u>заменена</u> выбранной без пересчета оставшегося срока.</i>
+    [CHANGE] <i>⚠️ Тариф будет <u>изменен</u>, срок выбранного тарифа прибавится к оставшимся дням.</i>
     *[OTHER] { empty }
     }
 
 msg-subscription-trial =
     <b>✅ Пробная подписка успешно получена!</b>
 
-    { msg-subscription-new-success }
+    { msg-subscription-activation-guide }
 
 msg-subscription-success =
     <b>✅ Оплата прошла успешно!</b>
 
-    { $purchase_type ->
-    [NEW] { msg-subscription-new-success }
-    [RENEW] { msg-subscription-renew-success }
-    [CHANGE] { msg-subscription-change-success }
-    *[OTHER] { $purchase_type }
-    }
+    { msg-subscription-activation-guide }
 
 msg-subscription-change-success =
-    Ваша подписка была изменена.
+    Тариф изменен, срок подписки продлен на { $added_duration }.
 
     <b>{ $plan_name }</b>
     { frg-subscription }
