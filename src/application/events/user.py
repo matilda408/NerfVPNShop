@@ -128,6 +128,32 @@ class SubscriptionExpiresEvent(UserEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
+class TrialNotConnectedEvent(UserEvent):
+    notification_type: NotificationType = field(
+        default=UserNotificationType.TRIAL_NOT_CONNECTED,
+        init=True,
+    )
+
+    subscription_url: str
+    device_count: int
+
+    @property
+    def event_key(self) -> str:
+        return "event-subscription.trial-not-connected"
+
+    def as_payload(self) -> "MessagePayloadDto":
+        from src.telegram.keyboards import get_instruction_platforms_keyboard  # noqa: PLC0415
+
+        return MessagePayloadDto(
+            i18n_key=self.event_key,
+            i18n_kwargs={**asdict(self)},
+            reply_markup=get_instruction_platforms_keyboard(),
+            disable_default_markup=False,
+            delete_after=None,
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class ReferralEvent(UserEvent):
     name: str
 

@@ -132,6 +132,37 @@ def get_buy_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def get_instruction_platforms_keyboard() -> InlineKeyboardMarkup:
+    ios_button = InlineKeyboardButton(
+        text="btn-instruction.ios",
+        callback_data=f"{GOTO_PREFIX}{MainMenu.INSTRUCTION_IOS.state}",
+    )
+    ios_button.icon_custom_emoji_id = "5775870512127283512"
+
+    android_button = InlineKeyboardButton(
+        text="btn-instruction.android",
+        callback_data=f"{GOTO_PREFIX}{MainMenu.INSTRUCTION_ANDROID.state}",
+    )
+    android_button.icon_custom_emoji_id = "5100720104375583787"
+
+    windows_button = InlineKeyboardButton(
+        text="btn-instruction.windows",
+        callback_data=f"{GOTO_PREFIX}{MainMenu.INSTRUCTION_WINDOWS.state}",
+    )
+    windows_button.icon_custom_emoji_id = "4976701317385814718"
+
+    macos_button = InlineKeyboardButton(
+        text="btn-instruction.macos",
+        callback_data=f"{GOTO_PREFIX}{MainMenu.INSTRUCTION_MACOS.state}",
+    )
+    macos_button.icon_custom_emoji_id = "5775870512127283512"
+
+    builder = InlineKeyboardBuilder()
+    builder.row(ios_button, android_button)
+    builder.row(windows_button, macos_button)
+    return builder.as_markup()
+
+
 def get_channel_keyboard(channel_url: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(

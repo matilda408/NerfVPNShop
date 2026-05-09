@@ -252,6 +252,38 @@ class SubscriptionDaoImpl(SubscriptionDao, BaseDaoImpl):
         )
         return result
 
+    async def get_current_trials_created_between(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]:
+        stmt = (
+            select(User, Subscription)
+            .join(Subscription, User.current_subscription_id == Subscription.id)
+            .where(
+                Subscription.status == SubscriptionStatus.ACTIVE,
+                Subscription.is_trial.is_(True),
+                Subscription.created_at >= start_at,
+                Subscription.created_at <= end_at,
+                Subscription.expire_at > datetime_now(),
+                User.is_blocked.is_(False),
+                User.is_bot_blocked.is_(False),
+            )
+            .order_by(Subscription.created_at.asc())
+        )
+
+        rows = await self.session.execute(stmt)
+        result = [
+            (self._convert_user_to_dto(user), self._convert_to_dto(subscription))
+            for user, subscription in rows.all()
+        ]
+
+        logger.debug(
+            f"Retrieved '{len(result)}' current trial subscriptions created between "
+            f"'{start_at}' and '{end_at}'"
+        )
+        return result
+
     async def count_total_trials(self) -> int:
         stmt = select(func.count(func.distinct(Subscription.user_telegram_id))).where(
             Subscription.is_trial.is_(True),

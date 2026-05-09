@@ -24,6 +24,7 @@ from .user import (
     SubscriptionExpiredEvent,
     SubscriptionExpiresEvent,
     SubscriptionLimitedEvent,
+    TrialNotConnectedEvent,
 )
 
 __all__ = [
@@ -57,4 +58,5 @@ __all__ = [
     "SubscriptionExpiredEvent",
     "SubscriptionExpiresEvent",
     "SubscriptionLimitedEvent",
+    "TrialNotConnectedEvent",
 ]

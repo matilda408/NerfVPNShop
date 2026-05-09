@@ -105,20 +105,22 @@ class RemnaWebhookService:
                 )
             )
 
+        elif event == RemnaUserEvent.EXPIRES_IN_24_HOURS:
+            logger.debug(
+                "Skipping Remnawave 24-hour expiration event: local scheduler handles it"
+            )
+
         elif event in {
             RemnaUserEvent.EXPIRES_IN_72_HOURS,
             RemnaUserEvent.EXPIRES_IN_48_HOURS,
-            RemnaUserEvent.EXPIRES_IN_24_HOURS,
         }:
             expire_map: dict[str, int] = {
                 RemnaUserEvent.EXPIRES_IN_72_HOURS: 3,
                 RemnaUserEvent.EXPIRES_IN_48_HOURS: 2,
-                RemnaUserEvent.EXPIRES_IN_24_HOURS: 1,
             }
             notification_type_map: dict[str, UserNotificationType] = {
                 RemnaUserEvent.EXPIRES_IN_72_HOURS: UserNotificationType.EXPIRES_IN_3_DAYS,
                 RemnaUserEvent.EXPIRES_IN_48_HOURS: UserNotificationType.EXPIRES_IN_2_DAYS,
-                RemnaUserEvent.EXPIRES_IN_24_HOURS: UserNotificationType.EXPIRES_IN_1_DAY,
             }
             await self.event_bus.publish(
                 SubscriptionExpiresEvent(

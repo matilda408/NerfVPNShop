@@ -1136,8 +1136,6 @@ msg-subscription-activation-guide =
     *[other] ☝️ Доступ предоставляется для { $device_count } любых устройств.
     }
 
-    🆕 Чтобы подключить дополнительные устройства, оформите новую подписку.
-
     Инструкции по настройке:
 
 msg-subscription-renew-success = Ваша подписка продлена на { $added_duration }.

@@ -234,6 +234,7 @@ class UserNotificationType(UpperStrEnum):
     EXPIRED = auto()
     EXPIRED_1_DAY_AGO = auto()
     LIMITED = auto()
+    TRIAL_NOT_CONNECTED = auto()
     #
     REFERRAL_ATTACHED = auto()
     REFERRAL_REWARD_RECEIVED = auto()

@@ -358,6 +358,7 @@ btn-notifications =
     [EXPIRED] Подписка истекла
     [EXPIRED_1_DAY_AGO] Подписка истекла (1 день)
     [LIMITED] Трафик исчерпан
+    [TRIAL_NOT_CONNECTED] Пробник без подключения (1 час)
     [REFERRAL_ATTACHED] Реферал закреплен
     [REFERRAL_REWARD_RECEIVED] Вознаграждение за реферала
     *[OTHER] { $type }
