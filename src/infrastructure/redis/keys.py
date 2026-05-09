@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Union
 
-from src.core.enums import Role
+from src.core.enums import Role, UserNotificationType
 
 from .key_builder import StorageKey
 
@@ -38,6 +38,13 @@ class LatestNotifiedVersionKey(StorageKey, prefix="latest_notified_version"):
 class SubscriptionExpiryReminderKey(StorageKey, prefix="subscription_expiry_reminder"):
     subscription_id: int
     expire_at: int
+    notification_type: UserNotificationType
+
+
+@dataclass(frozen=True)
+class TrialNotConnectedReminderKey(StorageKey, prefix="trial_not_connected_reminder"):
+    subscription_id: int
+    created_at: int
 
 
 class PaymentWaitlistKey(StorageKey, prefix="payment_waitlist"): ...
