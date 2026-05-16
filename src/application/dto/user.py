@@ -41,6 +41,7 @@ class UserDto(BaseDto, TrackableMixin, TimestampMixin):
     language: Locale = Locale.EN
 
     personal_discount: int = 0
+    personal_discount_plan_id: Optional[int] = None
     purchase_discount: int = 0
     points: int = 0
 

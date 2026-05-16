@@ -392,7 +392,7 @@ msg-user-main =
 
     <b>💸 Скидка:</b>
     <blockquote>
-    • <b>Персональная</b>: { $personal_discount }%
+    • <b>Персональная</b>: { $personal_discount }% ({ $personal_discount_plan })
     • <b>На следующую покупку</b>: { $purchase_discount }%
     </blockquote>
 
@@ -540,6 +540,9 @@ msg-user-discount =
 
 msg-user-discount-personal =
     <b>👤 Персональная скидка</b>
+
+    Сначала выберите тариф, для которого действует скидка.
+    Если выбрать «Все тарифы», скидка будет работать как раньше.
 
     Выберите по кнопке или введите свой вариант.
 
