@@ -28,6 +28,10 @@ class User(BaseSql, TimestampMixin):
         index=True,
     )
     purchase_discount: Mapped[int]
+    purchase_discount_plan_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("plans.id", ondelete="SET NULL"),
+        index=True,
+    )
     points: Mapped[int]
 
     is_blocked: Mapped[bool]

@@ -71,10 +71,21 @@ def replace_last_match(source: str, pattern: re.Pattern[str], replacement: str) 
     return source[: match.start()] + replacement + source[match.end() :]
 
 
+def get_currency_from_label(label: str) -> Currency | None:
+    for currency in Currency:
+        currency_symbol = re.escape(currency.symbol)
+        pattern = re.compile(PRICE_PATTERN_TEMPLATE.format(currency=currency_symbol))
+        if pattern.search(label):
+            return currency
+
+    return None
+
+
 def format_discounted_price_label(
     label: str,
     price: PriceDetailsDto,
     currency: Currency,
+    append_if_missing: bool = True,
 ) -> str:
     if price.discount_percent <= 0:
         return label
@@ -96,7 +107,26 @@ def format_discounted_price_label(
     if replaced:
         return replaced
 
-    return f"{label} | {replacement}"
+    if append_if_missing:
+        return f"{label} | {replacement}"
+
+    return label
+
+
+def calculate_label_price(
+    duration: PlanDurationDto,
+    user: UserDto,
+    pricing_service: PricingService,
+    plan_id: int,
+    currency: Currency,
+) -> PriceDetailsDto | None:
+    try:
+        raw_price = duration.get_price(currency)
+    except StopIteration:
+        logger.warning(f"Plan '{plan_id}' has no price for currency '{currency}'")
+        return None
+
+    return pricing_service.calculate(user, raw_price, currency, plan_id=plan_id)
 
 
 def format_plan_name_with_discount(
@@ -104,7 +134,7 @@ def format_plan_name_with_discount(
     name: str,
     user: UserDto,
     pricing_service: PricingService,
-    currency: Currency,
+    fallback_currency: Currency,
     duration_days: int | None = None,
 ) -> str:
     duration = (
@@ -115,13 +145,24 @@ def format_plan_name_with_discount(
     if not duration:
         return name
 
-    price = pricing_service.calculate(
+    label_currency = get_currency_from_label(name)
+    currency = label_currency or fallback_currency
+    price = calculate_label_price(
+        duration,
         user,
-        duration.get_price(currency),
+        pricing_service,
+        plan.id,
         currency,
-        plan_id=plan.id,
     )
-    return format_discounted_price_label(name, price, currency)
+    if not price:
+        return name
+
+    return format_discounted_price_label(
+        name,
+        price,
+        currency,
+        append_if_missing=label_currency is None,
+    )
 
 
 @inject

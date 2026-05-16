@@ -202,9 +202,7 @@ class PurchaseSubscription(Interactor[PurchaseSubscriptionDto, None]):
                         telegram_id=user.telegram_id,
                     )
                     await self.user_dao.set_trial_available(user.telegram_id, False)
-                    if user.purchase_discount:
-                        user.purchase_discount = 0
-                        await self.user_dao.update(user)
+                    await self._clear_purchase_discount_if_used(user, plan)
                     await self.uow.commit()
 
                     logger.debug(
@@ -238,9 +236,7 @@ class PurchaseSubscription(Interactor[PurchaseSubscriptionDto, None]):
 
                     subscription.plan_snapshot = plan
                     await self.subscription_dao.update(subscription)
-                    if user.purchase_discount:
-                        user.purchase_discount = 0
-                        await self.user_dao.update(user)
+                    await self._clear_purchase_discount_if_used(user, plan)
                     await self.uow.commit()
                     logger.debug(f"{actor.log} Renewed subscription for user '{user.telegram_id}'")
 
@@ -270,9 +266,7 @@ class PurchaseSubscription(Interactor[PurchaseSubscriptionDto, None]):
                     await self.subscription_dao.update(subscription)
                     await self.user_dao.set_trial_available(user.telegram_id, False)
 
-                    if user.purchase_discount:
-                        user.purchase_discount = 0
-                        await self.user_dao.update(user)
+                    await self._clear_purchase_discount_if_used(user, plan)
                     await self.uow.commit()
                     logger.debug(f"{actor.log} Changed subscription for user '{user.telegram_id}'")
 
@@ -307,6 +301,21 @@ class PurchaseSubscription(Interactor[PurchaseSubscriptionDto, None]):
             return days_to_datetime(duration)
 
         return max(current_expire, datetime_now()) + timedelta(days=duration)
+
+    async def _clear_purchase_discount_if_used(
+        self,
+        user: UserDto,
+        plan: PlanSnapshotDto,
+    ) -> None:
+        if not user.purchase_discount:
+            return
+
+        if user.purchase_discount_plan_id is not None and user.purchase_discount_plan_id != plan.id:
+            return
+
+        user.purchase_discount = 0
+        user.purchase_discount_plan_id = None
+        await self.user_dao.update(user)
 
     @staticmethod
     def _apply_plan_to_subscription(

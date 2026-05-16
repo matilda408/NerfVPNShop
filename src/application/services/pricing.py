@@ -20,6 +20,19 @@ class PricingService:
 
         return plan_id == user.personal_discount_plan_id
 
+    def is_purchase_discount_applicable(
+        self,
+        user: UserDto,
+        plan_id: int | None = None,
+    ) -> bool:
+        if not user.purchase_discount:
+            return False
+
+        if user.purchase_discount_plan_id is None:
+            return True
+
+        return plan_id == user.purchase_discount_plan_id
+
     def is_largest_discount_personal(
         self,
         user: UserDto,
@@ -30,7 +43,11 @@ class PricingService:
             if self.is_personal_discount_applicable(user, plan_id)
             else 0
         )
-        purchase = user.purchase_discount or 0
+        purchase = (
+            user.purchase_discount
+            if self.is_purchase_discount_applicable(user, plan_id)
+            else 0
+        )
         return personal > 0 and personal > purchase
 
     def get_effective_discount(self, user: UserDto, plan_id: int | None = None) -> int:
@@ -39,12 +56,18 @@ class PricingService:
             if self.is_personal_discount_applicable(user, plan_id)
             else 0
         )
-        discount_percent = min(max(user.purchase_discount or 0, personal), 100)
+        purchase = (
+            user.purchase_discount
+            if self.is_purchase_discount_applicable(user, plan_id)
+            else 0
+        )
+        discount_percent = min(max(purchase, personal), 100)
         logger.debug(
             f"Calculated effective discount percent '{discount_percent}' for user "
             f"'{user.telegram_id}' (purchase_discount='{user.purchase_discount}', "
             f"personal_discount='{user.personal_discount}', plan_id='{plan_id}', "
-            f"personal_discount_plan_id='{user.personal_discount_plan_id}')"
+            f"personal_discount_plan_id='{user.personal_discount_plan_id}', "
+            f"purchase_discount_plan_id='{user.purchase_discount_plan_id}')"
         )
         return discount_percent
 
