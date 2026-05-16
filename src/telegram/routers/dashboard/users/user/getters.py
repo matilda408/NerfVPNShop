@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import Any, Optional, Union
 
 from adaptix import Retort
@@ -36,11 +37,22 @@ from src.core.utils.i18n_helpers import (
 )
 from src.core.utils.i18n_keys import ByteUnitKey
 
+CUSTOM_EMOJI_PATTERN = re.compile(
+    r'<tg-emoji\s+emoji-id=["\'](?P<id>\d+)["\'][^>]*>.*?</tg-emoji>',
+    re.DOTALL,
+)
+
+
+def format_plan_name(name: str) -> str:
+    return " ".join(CUSTOM_EMOJI_PATTERN.sub("", name).split())
+
 
 @inject
 async def user_getter(
     dialog_manager: DialogManager,
     user: UserDto,
+    i18n: FromDishka[TranslatorRunner],
+    plan_dao: FromDishka[PlanDao],
     get_user_profile: FromDishka[GetUserProfile],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -48,6 +60,13 @@ async def user_getter(
     target_telegram_id: int = dialog_manager.start_data[TARGET_TELEGRAM_ID]  # type: ignore[call-overload, index, assignment]
     dialog_manager.dialog_data[TARGET_TELEGRAM_ID] = target_telegram_id
     profile = await get_user_profile(user, target_telegram_id)
+    personal_discount_plan = "все тарифы"
+
+    if profile.target_user.personal_discount_plan_id:
+        plan = await plan_dao.get_by_id(profile.target_user.personal_discount_plan_id)
+        personal_discount_plan = (
+            format_plan_name(i18n.get(plan.name)) if plan else "тариф удален"
+        )
 
     data: dict[str, Any] = {
         "telegram_id": profile.target_user.telegram_id,
@@ -58,6 +77,7 @@ async def user_getter(
         "show_points": profile.show_points,
         "points": profile.target_user.points,
         "personal_discount": profile.target_user.personal_discount,
+        "personal_discount_plan": personal_discount_plan,
         "purchase_discount": profile.target_user.purchase_discount,
         "is_blocked": profile.target_user.is_blocked,
         "is_bot_blocked": profile.target_user.is_bot_blocked,
@@ -168,8 +188,47 @@ async def devices_getter(
     }
 
 
-async def discount_getter(dialog_manager: DialogManager, **kwargs: Any) -> dict[str, Any]:
-    return {"percentages": [0, 5, 10, 25, 40, 50, 70, 80, 100]}
+@inject
+async def discount_getter(
+    dialog_manager: DialogManager,
+    i18n: FromDishka[TranslatorRunner],
+    plan_dao: FromDishka[PlanDao],
+    user_dao: FromDishka[UserDao],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data[TARGET_TELEGRAM_ID]
+    target_user = await user_dao.get_by_telegram_id(target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    if "personal_discount_plan_id" not in dialog_manager.dialog_data:
+        dialog_manager.dialog_data["personal_discount_plan_id"] = (
+            target_user.personal_discount_plan_id
+        )
+
+    selected_plan_id = dialog_manager.dialog_data.get("personal_discount_plan_id")
+    active_plans = await plan_dao.get_active_plans()
+    personal_discount_plans = [
+        {
+            "id": 0,
+            "name": f"{'🔘' if selected_plan_id is None else '⚪'} Все тарифы",
+        }
+    ]
+
+    for plan in active_plans:
+        plan_name = format_plan_name(i18n.get(plan.name))
+        personal_discount_plans.append(
+            {
+                "id": plan.id,
+                "name": f"{'🔘' if selected_plan_id == plan.id else '⚪'} {plan_name}",
+            }
+        )
+
+    return {
+        "percentages": [0, 5, 10, 25, 40, 50, 70, 80, 100],
+        "personal_discount_plans": personal_discount_plans,
+    }
 
 
 @inject

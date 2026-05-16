@@ -60,6 +60,7 @@ from .handlers import (
     on_give_subscription,
     on_internal_squad_select,
     on_personal_discount_input,
+    on_personal_discount_plan_select,
     on_personal_discount_select,
     on_plan_select,
     on_points_input,
@@ -704,6 +705,16 @@ discount = Window(
 personal_discount = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-user-discount-personal"),
+    Column(
+        Select(
+            text=Format("{item[name]}"),
+            id="personal_discount_plan_select",
+            item_id_getter=lambda item: item["id"],
+            items="personal_discount_plans",
+            type_factory=int,
+            on_click=on_personal_discount_plan_select,
+        ),
+    ),
     Group(
         Select(
             text=Format("{item}%"),

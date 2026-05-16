@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal
 from typing import Any, cast
 
 from adaptix import Retort
@@ -9,13 +10,13 @@ from loguru import logger
 
 from src.application.common import Remnawave, TranslatorRunner
 from src.application.common.dao import PaymentGatewayDao, PlanDao, SettingsDao, SubscriptionDao
-from src.application.dto import PlanDto, PriceDetailsDto, UserDto
+from src.application.dto import PlanDto, PlanDurationDto, PriceDetailsDto, UserDto
 from src.application.services import PricingService
 from src.application.use_cases.plan.queries.match import MatchPlan, MatchPlanDto
 from src.application.use_cases.user.queries.plans import GetAvailableTrial
 from src.application.use_cases.user.queries.plans import GetAvailablePlans
 from src.core.config import AppConfig
-from src.core.enums import PurchaseType
+from src.core.enums import Currency, PurchaseType
 from src.core.utils.happ import make_happ_redirect_url
 from src.core.utils.i18n_helpers import (
     i18n_format_days,
@@ -34,6 +35,9 @@ CUSTOM_EMOJI_PATTERN = re.compile(
     re.DOTALL,
 )
 
+STRIKE_OVERLAY = "\u0336"
+PRICE_PATTERN_TEMPLATE = r"\d+(?:[.,]\d+)?\s*{currency}"
+
 
 def format_plan_button_label(name: str) -> tuple[str, str | None]:
     match = CUSTOM_EMOJI_PATTERN.search(name)
@@ -41,6 +45,83 @@ def format_plan_button_label(name: str) -> tuple[str, str | None]:
     label = CUSTOM_EMOJI_PATTERN.sub("", name)
     label = " ".join(label.split())
     return label or name, icon_custom_emoji_id
+
+
+def strikethrough(value: object) -> str:
+    return "".join(f"{char}{STRIKE_OVERLAY}" for char in str(value))
+
+
+def format_amount(amount: Decimal) -> str:
+    return f"{amount.normalize():f}"
+
+
+def get_display_duration(plan: PlanDto) -> PlanDurationDto | None:
+    if not plan.durations:
+        return None
+
+    return sorted(plan.durations, key=lambda duration: (duration.order_index, duration.days))[0]
+
+
+def replace_last_match(source: str, pattern: re.Pattern[str], replacement: str) -> str | None:
+    matches = list(pattern.finditer(source))
+    if not matches:
+        return None
+
+    match = matches[-1]
+    return source[: match.start()] + replacement + source[match.end() :]
+
+
+def format_discounted_price_label(
+    label: str,
+    price: PriceDetailsDto,
+    currency: Currency,
+) -> str:
+    if price.discount_percent <= 0:
+        return label
+
+    original_amount = format_amount(price.original_amount)
+    final_amount = format_amount(price.final_amount)
+    old_price = f"{original_amount}{currency.symbol}"
+    new_price = f"{final_amount}{currency.symbol}"
+    replacement = f"{strikethrough(old_price)} \u2192 {new_price}"
+    currency_symbol = re.escape(currency.symbol)
+
+    exact_pattern = re.compile(rf"{re.escape(original_amount)}\s*{currency_symbol}")
+    replaced = replace_last_match(label, exact_pattern, replacement)
+    if replaced:
+        return replaced
+
+    generic_pattern = re.compile(PRICE_PATTERN_TEMPLATE.format(currency=currency_symbol))
+    replaced = replace_last_match(label, generic_pattern, replacement)
+    if replaced:
+        return replaced
+
+    return f"{label} | {replacement}"
+
+
+def format_plan_name_with_discount(
+    plan: PlanDto,
+    name: str,
+    user: UserDto,
+    pricing_service: PricingService,
+    currency: Currency,
+    duration_days: int | None = None,
+) -> str:
+    duration = (
+        plan.get_duration(duration_days)
+        if duration_days is not None
+        else get_display_duration(plan)
+    )
+    if not duration:
+        return name
+
+    price = pricing_service.calculate(
+        user,
+        duration.get_price(currency),
+        currency,
+        plan_id=plan.id,
+    )
+    return format_discounted_price_label(name, price, currency)
 
 
 @inject
@@ -163,15 +244,26 @@ async def plans_getter(
     dialog_manager: DialogManager,
     user: UserDto,
     i18n: FromDishka[TranslatorRunner],
+    settings_dao: FromDishka[SettingsDao],
+    pricing_service: FromDishka[PricingService],
     get_available_plans: FromDishka[GetAvailablePlans],
     **kwargs: Any,
 ) -> dict[str, Any]:
     plans = await get_available_plans.system(user)
+    settings = await settings_dao.get()
+    currency = settings.default_currency
 
     formatted_plans = []
     for plan in plans:
         name = i18n.get(plan.name)
         label, icon_custom_emoji_id = format_plan_button_label(name)
+        label = format_plan_name_with_discount(
+            plan,
+            label,
+            user,
+            pricing_service,
+            currency,
+        )
         formatted_plans.append(
             {
                 "id": plan.id,
@@ -211,7 +303,12 @@ async def duration_getter(
 
     for duration in plan.durations:
         key, kw = i18n_format_days(duration.days)
-        price = pricing_service.calculate(user, duration.get_price(currency), currency)
+        price = pricing_service.calculate(
+            user,
+            duration.get_price(currency),
+            currency,
+            plan_id=plan.id,
+        )
         durations.append(
             {
                 "days": duration.days,
@@ -234,8 +331,11 @@ async def duration_getter(
         "final_amount": 0,
         "currency": "",
         "only_single_plan": only_single_plan,
-        "discount_percent": pricing_service.get_effective_discount(user),
-        "is_personal_discount": pricing_service.is_largest_discount_personal(user),
+        "discount_percent": pricing_service.get_effective_discount(user, plan_id=plan.id),
+        "is_personal_discount": pricing_service.is_largest_discount_personal(
+            user,
+            plan_id=plan.id,
+        ),
     }
 
 
@@ -245,6 +345,7 @@ async def payment_method_getter(
     user: UserDto,
     retort: FromDishka[Retort],
     i18n: FromDishka[TranslatorRunner],
+    settings_dao: FromDishka[SettingsDao],
     payment_gateway_dao: FromDishka[PaymentGatewayDao],
     pricing_service: FromDishka[PricingService],
     **kwargs: Any,
@@ -257,6 +358,7 @@ async def payment_method_getter(
         return {}
 
     plan = retort.load(raw_plan, PlanDto)
+    settings = await settings_dao.get()
     gateways = await payment_gateway_dao.get_active()
     selected_duration = dialog_manager.dialog_data["selected_duration"]
     only_single_duration = dialog_manager.dialog_data.get("only_single_duration", False)
@@ -271,7 +373,7 @@ async def payment_method_getter(
     for option in build_payment_method_options(gateways):
         gateway = gateways_by_type[option.gateway_type]
         raw_price = duration.get_price(gateway.currency)
-        price = pricing_service.calculate(user, raw_price, gateway.currency)
+        price = pricing_service.calculate(user, raw_price, gateway.currency, plan_id=plan.id)
         payment_methods.append(
             {
                 "id": option.id,
@@ -287,7 +389,14 @@ async def payment_method_getter(
     key, kw = i18n_format_days(duration.days)
 
     return {
-        "plan": i18n.get(plan.name),
+        "plan": format_plan_name_with_discount(
+            plan,
+            i18n.get(plan.name),
+            user,
+            pricing_service,
+            settings.default_currency,
+            duration.days,
+        ),
         "description": i18n.get(plan.description) if plan.description else False,
         "type": plan.type,
         "devices": i18n_format_device_limit(plan.device_limit),
@@ -298,8 +407,11 @@ async def payment_method_getter(
         "currency": "",
         "only_single_plan": only_single_plan,
         "only_single_duration": only_single_duration,
-        "discount_percent": pricing_service.get_effective_discount(user),
-        "is_personal_discount": pricing_service.is_largest_discount_personal(user),
+        "discount_percent": pricing_service.get_effective_discount(user, plan_id=plan.id),
+        "is_personal_discount": pricing_service.is_largest_discount_personal(
+            user,
+            plan_id=plan.id,
+        ),
     }
 
 
@@ -359,7 +471,10 @@ async def confirm_getter(
         "final_amount": pricing.final_amount,
         "discount_percent": pricing.discount_percent,
         "original_amount": pricing.original_amount,
-        "is_personal_discount": pricing_service.is_largest_discount_personal(user),
+        "is_personal_discount": pricing_service.is_largest_discount_personal(
+            user,
+            plan_id=plan.id,
+        ),
         "currency": payment_gateway.currency.symbol,
         "url": result_url,
         "only_single_gateway": len(payment_options) == 1,

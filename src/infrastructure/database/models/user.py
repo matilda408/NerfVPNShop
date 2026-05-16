@@ -23,6 +23,10 @@ class User(BaseSql, TimestampMixin):
     language: Mapped[Locale]
 
     personal_discount: Mapped[int]
+    personal_discount_plan_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("plans.id", ondelete="SET NULL"),
+        index=True,
+    )
     purchase_discount: Mapped[int]
     points: Mapped[int]
 

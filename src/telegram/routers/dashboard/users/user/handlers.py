@@ -251,13 +251,31 @@ async def on_personal_discount_select(
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     target_telegram_id = dialog_manager.dialog_data[TARGET_TELEGRAM_ID]
+    selected_plan_id = dialog_manager.dialog_data.get("personal_discount_plan_id")
 
     await set_user_personal_discount(
         user,
-        SetUserPersonalDiscountDto(target_telegram_id, selected_discount),
+        SetUserPersonalDiscountDto(
+            target_telegram_id,
+            selected_discount,
+            plan_id=selected_plan_id,
+        ),
+    )
+    dialog_manager.dialog_data["personal_discount_plan_id"] = (
+        selected_plan_id if selected_discount > 0 else None
     )
 
     await dialog_manager.switch_to(state=DashboardUser.DISCOUNT)
+
+
+async def on_personal_discount_plan_select(
+    callback: CallbackQuery,
+    widget: Select,
+    dialog_manager: DialogManager,
+    selected_plan_id: int,
+) -> None:
+    dialog_manager.dialog_data["personal_discount_plan_id"] = selected_plan_id or None
+    await dialog_manager.switch_to(state=DashboardUser.PERSONAL_DISCOUNT)
 
 
 @inject
@@ -271,15 +289,25 @@ async def on_personal_discount_input(
     dialog_manager.show_mode = ShowMode.EDIT
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     target_telegram_id = dialog_manager.dialog_data[TARGET_TELEGRAM_ID]
+    selected_plan_id = dialog_manager.dialog_data.get("personal_discount_plan_id")
 
     if not message.text or not message.text.isdigit():
         await notifier.notify_user(user, i18n_key="ntf-common.invalid-value")
         return
 
+    discount = int(message.text)
+
     try:
         await set_user_personal_discount(
             user,
-            SetUserPersonalDiscountDto(target_telegram_id, discount=int(message.text)),
+            SetUserPersonalDiscountDto(
+                target_telegram_id,
+                discount=discount,
+                plan_id=selected_plan_id,
+            ),
+        )
+        dialog_manager.dialog_data["personal_discount_plan_id"] = (
+            selected_plan_id if discount > 0 else None
         )
         await dialog_manager.switch_to(state=DashboardUser.DISCOUNT)
     except ValueError:
