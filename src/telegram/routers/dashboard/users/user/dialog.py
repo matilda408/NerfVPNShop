@@ -66,6 +66,7 @@ from .handlers import (
     on_points_input,
     on_points_select,
     on_purchase_discount_input,
+    on_purchase_discount_plan_select,
     on_purchase_discount_select,
     on_reset_traffic,
     on_role_select,
@@ -742,6 +743,16 @@ personal_discount = Window(
 purchase_discount = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-user-discount-purchase"),
+    Column(
+        Select(
+            text=Format("{item[name]}"),
+            id="purchase_discount_plan_select",
+            item_id_getter=lambda item: item["id"],
+            items="purchase_discount_plans",
+            type_factory=int,
+            on_click=on_purchase_discount_plan_select,
+        ),
+    ),
     Group(
         Select(
             text=Format("{item}%"),

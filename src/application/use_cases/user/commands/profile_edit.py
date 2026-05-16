@@ -47,6 +47,7 @@ class SetUserPersonalDiscount(Interactor[SetUserPersonalDiscountDto, None]):
 class SetUserPurchaseDiscountDto:
     telegram_id: int
     discount: int
+    plan_id: int | None = None
 
 
 class SetUserPurchaseDiscount(Interactor[SetUserPurchaseDiscountDto, None]):
@@ -66,11 +67,13 @@ class SetUserPurchaseDiscount(Interactor[SetUserPurchaseDiscountDto, None]):
                 raise ValueError(f"User '{data.telegram_id}' not found")
 
             target_user.purchase_discount = data.discount
+            target_user.purchase_discount_plan_id = data.plan_id if data.discount > 0 else None
             await self.user_dao.update(target_user)
             await self.uow.commit()
 
         logger.info(
-            f"{actor.log} Set purchase discount to '{data.discount}' for user '{data.telegram_id}'"
+            f"{actor.log} Set purchase discount to '{data.discount}' "
+            f"for user '{data.telegram_id}' and plan '{data.plan_id}'"
         )
 
 

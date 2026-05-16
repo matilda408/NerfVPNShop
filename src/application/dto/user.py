@@ -43,6 +43,7 @@ class UserDto(BaseDto, TrackableMixin, TimestampMixin):
     personal_discount: int = 0
     personal_discount_plan_id: Optional[int] = None
     purchase_discount: int = 0
+    purchase_discount_plan_id: Optional[int] = None
     points: int = 0
 
     is_blocked: bool = False

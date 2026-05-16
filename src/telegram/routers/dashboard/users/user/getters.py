@@ -47,6 +47,18 @@ def format_plan_name(name: str) -> str:
     return " ".join(CUSTOM_EMOJI_PATTERN.sub("", name).split())
 
 
+async def format_discount_plan(
+    plan_id: int | None,
+    i18n: TranslatorRunner,
+    plan_dao: PlanDao,
+) -> str:
+    if not plan_id:
+        return "все тарифы"
+
+    plan = await plan_dao.get_by_id(plan_id)
+    return format_plan_name(i18n.get(plan.name)) if plan else "тариф удален"
+
+
 @inject
 async def user_getter(
     dialog_manager: DialogManager,
@@ -60,13 +72,16 @@ async def user_getter(
     target_telegram_id: int = dialog_manager.start_data[TARGET_TELEGRAM_ID]  # type: ignore[call-overload, index, assignment]
     dialog_manager.dialog_data[TARGET_TELEGRAM_ID] = target_telegram_id
     profile = await get_user_profile(user, target_telegram_id)
-    personal_discount_plan = "все тарифы"
-
-    if profile.target_user.personal_discount_plan_id:
-        plan = await plan_dao.get_by_id(profile.target_user.personal_discount_plan_id)
-        personal_discount_plan = (
-            format_plan_name(i18n.get(plan.name)) if plan else "тариф удален"
-        )
+    personal_discount_plan = await format_discount_plan(
+        profile.target_user.personal_discount_plan_id,
+        i18n,
+        plan_dao,
+    )
+    purchase_discount_plan = await format_discount_plan(
+        profile.target_user.purchase_discount_plan_id,
+        i18n,
+        plan_dao,
+    )
 
     data: dict[str, Any] = {
         "telegram_id": profile.target_user.telegram_id,
@@ -79,6 +94,7 @@ async def user_getter(
         "personal_discount": profile.target_user.personal_discount,
         "personal_discount_plan": personal_discount_plan,
         "purchase_discount": profile.target_user.purchase_discount,
+        "purchase_discount_plan": purchase_discount_plan,
         "is_blocked": profile.target_user.is_blocked,
         "is_bot_blocked": profile.target_user.is_bot_blocked,
         "is_trial_available": profile.target_user.is_trial_available,
@@ -206,13 +222,24 @@ async def discount_getter(
         dialog_manager.dialog_data["personal_discount_plan_id"] = (
             target_user.personal_discount_plan_id
         )
+    if "purchase_discount_plan_id" not in dialog_manager.dialog_data:
+        dialog_manager.dialog_data["purchase_discount_plan_id"] = (
+            target_user.purchase_discount_plan_id
+        )
 
-    selected_plan_id = dialog_manager.dialog_data.get("personal_discount_plan_id")
+    selected_personal_plan_id = dialog_manager.dialog_data.get("personal_discount_plan_id")
+    selected_purchase_plan_id = dialog_manager.dialog_data.get("purchase_discount_plan_id")
     active_plans = await plan_dao.get_active_plans()
     personal_discount_plans = [
         {
             "id": 0,
-            "name": f"{'🔘' if selected_plan_id is None else '⚪'} Все тарифы",
+            "name": f"{'🔘' if selected_personal_plan_id is None else '⚪'} Все тарифы",
+        }
+    ]
+    purchase_discount_plans = [
+        {
+            "id": 0,
+            "name": f"{'🔘' if selected_purchase_plan_id is None else '⚪'} Все тарифы",
         }
     ]
 
@@ -221,13 +248,26 @@ async def discount_getter(
         personal_discount_plans.append(
             {
                 "id": plan.id,
-                "name": f"{'🔘' if selected_plan_id == plan.id else '⚪'} {plan_name}",
+                "name": (
+                    f"{'🔘' if selected_personal_plan_id == plan.id else '⚪'} "
+                    f"{plan_name}"
+                ),
+            }
+        )
+        purchase_discount_plans.append(
+            {
+                "id": plan.id,
+                "name": (
+                    f"{'🔘' if selected_purchase_plan_id == plan.id else '⚪'} "
+                    f"{plan_name}"
+                ),
             }
         )
 
     return {
         "percentages": [0, 5, 10, 25, 40, 50, 70, 80, 100],
         "personal_discount_plans": personal_discount_plans,
+        "purchase_discount_plans": purchase_discount_plans,
     }
 
 
