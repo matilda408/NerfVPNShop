@@ -87,9 +87,9 @@ class GiveReferrerReward(Interactor[GiveReferrerRewardDto, None]):
         elif reward.type == ReferralRewardType.EXTRA_DAYS:
             subscription = await self.subscription_dao.get_current(user.telegram_id)
 
-            if not subscription or subscription.is_trial:
+            if not subscription:
                 logger.info(
-                    f"{actor.log} Current paid subscription not found for user "
+                    f"{actor.log} Current subscription not found for user "
                     f"'{user.telegram_id}', creating referral bonus subscription"
                 )
                 bonus_plan = replace(data.plan_snapshot, duration=reward.amount, is_trial=False)
