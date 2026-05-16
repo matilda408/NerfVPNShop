@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 from loguru import logger
@@ -6,7 +6,13 @@ from loguru import logger
 from src.application.common import EventPublisher, Interactor, Remnawave
 from src.application.common.dao import ReferralDao, SettingsDao, SubscriptionDao, UserDao
 from src.application.common.uow import UnitOfWork
-from src.application.dto import ReferralRewardDto, TransactionDto, UserDto
+from src.application.dto import (
+    PlanSnapshotDto,
+    ReferralRewardDto,
+    SubscriptionDto,
+    TransactionDto,
+    UserDto,
+)
 from src.application.events import ReferralRewardFailedEvent, ReferralRewardReceivedEvent
 from src.application.use_cases.referral.queries.calculations import (
     CalculateReferralReward,
@@ -16,7 +22,14 @@ from src.application.use_cases.user.commands.profile_edit import (
     ChangeUserPoints,
     ChangeUserPointsDto,
 )
-from src.core.enums import PurchaseType, ReferralAccrualStrategy, ReferralLevel, ReferralRewardType
+from src.core.enums import (
+    PurchaseType,
+    ReferralAccrualStrategy,
+    ReferralLevel,
+    ReferralRewardType,
+    SubscriptionStatus,
+)
+from src.core.types import RemnaUserDto
 from src.core.utils.time import datetime_now
 
 
@@ -25,6 +38,7 @@ class GiveReferrerRewardDto:
     user_telegram_id: int
     reward: ReferralRewardDto
     referred_name: str
+    plan_snapshot: PlanSnapshotDto
 
 
 class GiveReferrerReward(Interactor[GiveReferrerRewardDto, None]):
@@ -71,47 +85,64 @@ class GiveReferrerReward(Interactor[GiveReferrerRewardDto, None]):
             )
 
         elif reward.type == ReferralRewardType.EXTRA_DAYS:
-            subscription = await self.subscription_dao.get_current(user.telegram_id)  # only active
+            subscription = await self.subscription_dao.get_current(user.telegram_id)
 
             if not subscription or subscription.is_trial:
-                logger.warning(
-                    f"{actor.log} Current subscription not found "
-                    f"for user '{user.telegram_id}', unable to add days"
+                logger.info(
+                    f"{actor.log} Current paid subscription not found for user "
+                    f"'{user.telegram_id}', creating referral bonus subscription"
+                )
+                bonus_plan = replace(data.plan_snapshot, duration=reward.amount, is_trial=False)
+                remna_user = await self.remnawave.create_user(user=user, plan=bonus_plan)
+                bonus_subscription = self._build_subscription_dto(
+                    remna_user=remna_user,
+                    plan=bonus_plan,
                 )
 
-                event_failed = ReferralRewardFailedEvent(
-                    user=user,
-                    name=data.referred_name,
-                    value=reward.amount,
-                    reward_type=reward.type,
+                async with self.uow:
+                    await self.subscription_dao.create(
+                        subscription=bonus_subscription,
+                        telegram_id=user.telegram_id,
+                    )
+                    await self.uow.commit()
+
+            else:
+                logger.info(
+                    f"{actor.log} Current subscription found for user '{user.telegram_id}', "
+                    f"expire date '{subscription.expire_at}'"
                 )
 
-                await self.event_publisher.publish(event_failed)
-                return
-
-            logger.info(
-                f"{actor.log} Current subscription found for user '{user.telegram_id}', "
-                f"expire date '{subscription.expire_at}'"
-            )
-
-            new_expire = subscription.expire_at + timedelta(days=reward.amount)
-
-            if new_expire < datetime_now():
-                logger.warning(
-                    f"{actor.log} Invalid expire time for user '{user.telegram_id}', "
-                    "unable to add referral days"
+                new_expire = max(subscription.expire_at, datetime_now()) + timedelta(
+                    days=reward.amount
                 )
-                return
 
-            async with self.uow:
-                subscription.expire_at = new_expire
-                await self.subscription_dao.update(subscription)
-                await self.remnawave.update_user(
-                    user=user,
-                    uuid=subscription.user_remna_id,
-                    subscription=subscription,
-                )
-                await self.uow.commit()
+                if new_expire < datetime_now():
+                    logger.warning(
+                        f"{actor.log} Invalid expire time for user '{user.telegram_id}', "
+                        "unable to add referral days"
+                    )
+
+                    event_failed = ReferralRewardFailedEvent(
+                        user=user,
+                        name=data.referred_name,
+                        value=reward.amount,
+                        reward_type=reward.type,
+                    )
+
+                    await self.event_publisher.publish(event_failed)
+                    return
+
+                async with self.uow:
+                    subscription.status = SubscriptionStatus.ACTIVE
+                    subscription.is_trial = False
+                    subscription.expire_at = new_expire
+                    await self.subscription_dao.update(subscription)
+                    await self.remnawave.update_user(
+                        user=user,
+                        uuid=subscription.user_remna_id,
+                        subscription=subscription,
+                    )
+                    await self.uow.commit()
 
         else:
             raise ValueError(
@@ -133,6 +164,26 @@ class GiveReferrerReward(Interactor[GiveReferrerRewardDto, None]):
             await self.uow.commit()
 
         logger.info(f"{actor.log} Finished applying reward to user '{user.telegram_id}'")
+
+    @staticmethod
+    def _build_subscription_dto(
+        remna_user: RemnaUserDto,
+        plan: PlanSnapshotDto,
+    ) -> SubscriptionDto:
+        return SubscriptionDto(
+            user_remna_id=remna_user.uuid,
+            status=SubscriptionStatus(remna_user.status),
+            is_trial=False,
+            traffic_limit=plan.traffic_limit,
+            device_limit=plan.device_limit,
+            traffic_limit_strategy=plan.traffic_limit_strategy,
+            tag=plan.tag,
+            internal_squads=plan.internal_squads,
+            external_squad=plan.external_squad,
+            expire_at=remna_user.expire_at,
+            url=remna_user.subscription_url,
+            plan_snapshot=plan,
+        )
 
 
 @dataclass(frozen=True)
@@ -251,6 +302,7 @@ class AssignReferralRewards(Interactor[AssignReferralRewardsDto, None]):
                     user_telegram_id=referrer.telegram_id,
                     reward=reward,
                     referred_name=data.user.name,
+                    plan_snapshot=data.transaction.plan_snapshot,
                 )
             )
 
