@@ -6,7 +6,7 @@ from adaptix import Retort
 from adaptix.conversion import ConversionRetort
 from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy import and_, case, func, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -348,7 +348,10 @@ class SubscriptionDaoImpl(SubscriptionDao, BaseDaoImpl):
                 ),
                 Subscription.is_trial.is_(True),
                 Subscription.created_at <= cutoff,
-                User.purchase_discount < 40,
+                or_(
+                    User.purchase_discount < 40,
+                    User.purchase_discount_plan_id.is_(None),
+                ),
                 User.is_blocked.is_(False),
                 User.is_bot_blocked.is_(False),
                 ~paid_subscription_exists,

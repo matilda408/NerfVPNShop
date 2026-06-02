@@ -103,6 +103,33 @@ class DiscountNotificationMixin:
             None,
         )
 
+    async def _get_monthly_discount_plan(self) -> PlanDto | None:
+        active_plans = await self.plan_dao.get_active_plans()
+        eligible_plans = [
+            plan
+            for plan in active_plans
+            if not plan.is_trial and self._get_rub_price(plan) is not None
+        ]
+
+        return next(
+            (plan for plan in eligible_plans if self._has_monthly_duration(plan)),
+            next(
+                (
+                    plan
+                    for plan in eligible_plans
+                    if self._is_monthly_plan_name(self.i18n.get(plan.name))
+                ),
+                None,
+            ),
+        )
+
+    def _has_monthly_duration(self, plan: PlanDto) -> bool:
+        return any(duration.days in {30, 31} for duration in plan.durations)
+
+    def _is_monthly_plan_name(self, plan_name: str) -> bool:
+        name = self._format_plan_name(plan_name).lower()
+        return "месяч" in name and not any(marker in name for marker in ("3", "6", "тр"))
+
     def _get_rub_price(self, plan: PlanDto) -> Decimal | None:
         durations = sorted(plan.durations, key=lambda duration: duration.order_index)
         for duration in durations:
@@ -224,13 +251,20 @@ class SetUserPurchaseDiscount(
             raise ValueError(f"Invalid discount value '{data.discount}'")
 
         should_notify = False
+        effective_plan_id = data.plan_id
+        if data.discount > 0:
+            monthly_plan = await self._get_monthly_discount_plan()
+            if not monthly_plan or monthly_plan.id is None:
+                raise ValueError("Monthly plan not found for purchase discount")
+            effective_plan_id = monthly_plan.id
+
         async with self.uow:
             target_user = await self.user_dao.get_by_telegram_id(data.telegram_id)
             if not target_user:
                 raise ValueError(f"User '{data.telegram_id}' not found")
 
             target_user.purchase_discount = data.discount
-            target_user.purchase_discount_plan_id = data.plan_id if data.discount > 0 else None
+            target_user.purchase_discount_plan_id = effective_plan_id if data.discount > 0 else None
             should_notify = data.discount > 0
             await self.user_dao.update(target_user)
             await self.uow.commit()
@@ -239,13 +273,13 @@ class SetUserPurchaseDiscount(
             await self._notify_discount(
                 actor,
                 target_user,
-                plan_id=data.plan_id,
+                plan_id=effective_plan_id,
                 discount_kind=PURCHASE_DISCOUNT_KIND,
             )
 
         logger.info(
             f"{actor.log} Set purchase discount to '{data.discount}' "
-            f"for user '{data.telegram_id}' and plan '{data.plan_id}'"
+            f"for user '{data.telegram_id}' and plan '{effective_plan_id}'"
         )
 
 

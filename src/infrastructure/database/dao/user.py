@@ -5,21 +5,13 @@ from adaptix import Retort
 from adaptix.conversion import ConversionRetort
 from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy import Integer, delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.common.dao import UserDao
 from src.application.dto import UserDto
-from src.core.constants import TTL_1H, TTL_6H
 from src.core.enums import Role, SubscriptionStatus
-from src.infrastructure.database.models import Referral, Subscription, Transaction, User
-from src.infrastructure.redis.cache import invalidate_cache, provide_cache
-from src.infrastructure.redis.keys import (
-    USER_COUNT_PREFIX,
-    USER_LIST_PREFIX,
-    RoleKey,
-    UserCacheKey,
-)
+from src.infrastructure.database.models import Referral, Subscription, User
 
 
 class UserDaoImpl(UserDao):
@@ -97,6 +89,19 @@ class UserDaoImpl(UserDao):
 
         logger.debug(f"User with referral code '{referral_code}' not found")
         return None
+
+    async def get_purchase_discounts_without_plan(self) -> list[UserDto]:
+        stmt = select(User).where(
+            User.purchase_discount > 0,
+            User.purchase_discount_plan_id.is_(None),
+            User.is_blocked.is_(False),
+            User.is_bot_blocked.is_(False),
+        )
+        result = await self.session.scalars(stmt)
+        db_users = cast(list, result.all())
+
+        logger.debug(f"Retrieved '{len(db_users)}' purchase discounts without plan")
+        return self._convert_to_dto_list(db_users)
 
     # @provide_cache(prefix=USER_LIST_PREFIX, ttl=TTL_1H)
     async def get_all(self, limit: Optional[int] = None, offset: int = 0) -> list[UserDto]:

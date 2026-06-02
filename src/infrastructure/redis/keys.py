@@ -55,7 +55,7 @@ class TrialNotConnectedDiscountKey(StorageKey, prefix="trial_not_connected_disco
 
 class TrialNotConnectedDiscountBackfillKey(
     StorageKey,
-    prefix="trial_not_connected_discount_backfill",
+    prefix="trial_not_connected_discount_backfill_monthly_v2",
 ): ...
 
 
@@ -72,6 +72,12 @@ class TrialExpiredWithoutPurchaseDiscountKey(
 ):
     subscription_id: int
     expire_at: int
+
+
+class PurchaseDiscountMonthlyCorrectionKey(
+    StorageKey,
+    prefix="purchase_discount_monthly_correction_v1",
+): ...
 
 
 class PaymentWaitlistKey(StorageKey, prefix="payment_waitlist"): ...
