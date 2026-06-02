@@ -20,6 +20,7 @@ from src.core.enums import Currency, UserNotificationType
 from src.core.utils.iterables import chunked
 from src.core.utils.time import datetime_now
 from src.infrastructure.redis.keys import (
+    PurchaseDiscountMonthlyCorrectionKey,
     SubscriptionExpiryReminderKey,
     TrialExpiredDiscountReminderKey,
     TrialExpiredWithoutPurchaseDiscountKey,
@@ -68,14 +69,29 @@ async def _get_discount_plan(
     return next((plan for plan in active_plans if not plan.is_trial), None)
 
 
-async def _get_purchase_discount_plan(plan_dao: PlanDao) -> PlanDto | None:
+def _has_monthly_duration(plan: PlanDto) -> bool:
+    return any(duration.days in {30, 31} for duration in plan.durations)
+
+
+def _is_monthly_plan_name(plan_name: str) -> bool:
+    name = _format_plan_name(plan_name).lower()
+    return "месяч" in name and not any(marker in name for marker in ("3", "6", "тр"))
+
+
+async def _get_purchase_discount_plan(
+    plan_dao: PlanDao,
+    i18n: TranslatorRunner,
+) -> PlanDto | None:
     active_plans = await plan_dao.get_active_plans()
+    eligible_plans = [
+        plan
+        for plan in active_plans
+        if not plan.is_trial and _get_rub_price(plan) is not None
+    ]
+
     return next(
-        (
-            plan
-            for plan in active_plans
-            if not plan.is_trial and _get_rub_price(plan) is not None
-        ),
+        (plan for plan in eligible_plans if _has_monthly_duration(plan)),
+        next((plan for plan in eligible_plans if _is_monthly_plan_name(i18n.get(plan.name))), None),
         None,
     )
 
@@ -260,6 +276,43 @@ async def notify_trial_subscriptions_not_connected_task(
 
 @broker.task(schedule=[{"cron": "* * * * *"}], retry_on_error=False)
 @inject(patch_module=True)
+async def correct_purchase_discounts_to_monthly_plan_task(
+    user_dao: FromDishka[UserDao],
+    plan_dao: FromDishka[PlanDao],
+    uow: FromDishka[UnitOfWork],
+    redis: FromDishka[Redis],
+    retort: FromDishka[Retort],
+    i18n: FromDishka[TranslatorRunner],
+) -> None:
+    correction_key = retort.dump(PurchaseDiscountMonthlyCorrectionKey())
+    is_correction_finished = await redis.get(correction_key)
+    if is_correction_finished:
+        logger.debug("Purchase discount monthly correction already finished")
+        return
+
+    plan = await _get_purchase_discount_plan(plan_dao, i18n)
+    if not plan or plan.id is None:
+        logger.warning("Monthly plan not found for purchase discount correction")
+        return
+
+    users = await user_dao.get_purchase_discounts_without_plan()
+    if not users:
+        await redis.set(correction_key, "1")
+        logger.debug("No purchase discounts without plan found")
+        return
+
+    async with uow:
+        for user in users:
+            user.purchase_discount_plan_id = plan.id
+            await user_dao.update(user)
+        await uow.commit()
+
+    await redis.set(correction_key, "1")
+    logger.info(f"Corrected '{len(users)}' purchase discounts to monthly plan '{plan.id}'")
+
+
+@broker.task(schedule=[{"cron": "* * * * *"}], retry_on_error=False)
+@inject(patch_module=True)
 async def grant_discount_for_trial_not_connected_task(  # noqa: C901
     subscription_dao: FromDishka[SubscriptionDao],
     user_dao: FromDishka[UserDao],
@@ -284,7 +337,7 @@ async def grant_discount_for_trial_not_connected_task(  # noqa: C901
         logger.debug("No three-day trial no-connection discounts pending")
         return
 
-    plan = await _get_purchase_discount_plan(plan_dao)
+    plan = await _get_purchase_discount_plan(plan_dao, i18n)
     if not plan:
         logger.warning("No active non-trial plan with RUB price found for no-connection discount")
         return
@@ -304,7 +357,7 @@ async def grant_discount_for_trial_not_connected_task(  # noqa: C901
             )
             continue
 
-        if user.purchase_discount >= 40:
+        if user.purchase_discount >= 40 and user.purchase_discount_plan_id == plan.id:
             logger.debug(
                 f"Skipping three-day trial no-connection discount for user "
                 f"'{user.telegram_id}': purchase discount is already '{user.purchase_discount}'"
@@ -332,6 +385,13 @@ async def grant_discount_for_trial_not_connected_task(  # noqa: C901
         if first_connected_at or last_connected_at:
             continue
 
+        if user.purchase_discount >= 40:
+            user.purchase_discount_plan_id = plan.id
+            async with uow:
+                await user_dao.update(user)
+                await uow.commit()
+            continue
+
         discount_key = retort.dump(
             TrialNotConnectedDiscountKey(
                 subscription_id=subscription.id,
@@ -343,7 +403,7 @@ async def grant_discount_for_trial_not_connected_task(  # noqa: C901
             continue
 
         user.purchase_discount = 40
-        user.purchase_discount_plan_id = None
+        user.purchase_discount_plan_id = plan.id
 
         async with uow:
             await user_dao.update(user)
@@ -394,7 +454,7 @@ async def backfill_discount_for_old_trial_not_connected_task(  # noqa: C901
     cutoff = datetime_now() - timedelta(days=3)
     trial_subscriptions = await subscription_dao.get_old_trials_without_paid_subscription(cutoff)
 
-    plan = await _get_purchase_discount_plan(plan_dao)
+    plan = await _get_purchase_discount_plan(plan_dao, i18n)
     if not plan:
         logger.warning("No active non-trial plan with RUB price found for old trial backfill")
         return
@@ -419,7 +479,7 @@ async def backfill_discount_for_old_trial_not_connected_task(  # noqa: C901
             )
             continue
 
-        if user.purchase_discount >= 40:
+        if user.purchase_discount >= 40 and user.purchase_discount_plan_id == plan.id:
             logger.debug(
                 f"Skipping old trial no-connection discount for user "
                 f"'{user.telegram_id}': purchase discount is already '{user.purchase_discount}'"
@@ -450,6 +510,14 @@ async def backfill_discount_for_old_trial_not_connected_task(  # noqa: C901
             processed_user_ids.add(user.telegram_id)
             continue
 
+        if user.purchase_discount >= 40:
+            user.purchase_discount_plan_id = plan.id
+            async with uow:
+                await user_dao.update(user)
+                await uow.commit()
+            processed_user_ids.add(user.telegram_id)
+            continue
+
         discount_key = retort.dump(
             TrialNotConnectedDiscountKey(
                 subscription_id=subscription.id,
@@ -462,7 +530,7 @@ async def backfill_discount_for_old_trial_not_connected_task(  # noqa: C901
             continue
 
         user.purchase_discount = 40
-        user.purchase_discount_plan_id = None
+        user.purchase_discount_plan_id = plan.id
 
         async with uow:
             await user_dao.update(user)
@@ -524,7 +592,7 @@ async def grant_discount_for_expired_trial_without_purchase_task(
         logger.debug("No three-day expired trial no-purchase discounts pending")
         return
 
-    plan = await _get_purchase_discount_plan(plan_dao)
+    plan = await _get_purchase_discount_plan(plan_dao, i18n)
     if not plan:
         logger.warning("No active non-trial plan with RUB price found for no-purchase discount")
         return
@@ -544,11 +612,18 @@ async def grant_discount_for_expired_trial_without_purchase_task(
             )
             continue
 
-        if user.purchase_discount >= 40:
+        if user.purchase_discount >= 40 and user.purchase_discount_plan_id == plan.id:
             logger.debug(
                 f"Skipping three-day expired trial no-purchase discount for user "
                 f"'{user.telegram_id}': purchase discount is already '{user.purchase_discount}'"
             )
+            continue
+
+        if user.purchase_discount >= 40:
+            user.purchase_discount_plan_id = plan.id
+            async with uow:
+                await user_dao.update(user)
+                await uow.commit()
             continue
 
         discount_key = retort.dump(
@@ -562,7 +637,7 @@ async def grant_discount_for_expired_trial_without_purchase_task(
             continue
 
         user.purchase_discount = 40
-        user.purchase_discount_plan_id = None
+        user.purchase_discount_plan_id = plan.id
 
         async with uow:
             await user_dao.update(user)
