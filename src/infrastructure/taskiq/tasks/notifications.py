@@ -1,26 +1,83 @@
 import asyncio
+import re
 import time
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from adaptix import Retort
 from dishka.integrations.taskiq import FromDishka, inject
 from loguru import logger
 from redis.asyncio import Redis
 
-from src.application.common import EventPublisher, Notifier, Remnawave
-from src.application.common.dao import SubscriptionDao, UserDao
+from src.application.common import EventPublisher, Notifier, Remnawave, TranslatorRunner
+from src.application.common.dao import PlanDao, SubscriptionDao, UserDao
 from src.application.common.uow import UnitOfWork
-from src.application.dto import MessagePayloadDto
+from src.application.dto import MessagePayloadDto, PlanDto, UserDto
 from src.application.events import SubscriptionExpiresEvent, TrialNotConnectedEvent
+from src.application.services import PricingService
 from src.core.constants import BATCH_DELAY, BATCH_SIZE_20, TTL_1D, TTL_7D
-from src.core.enums import UserNotificationType
+from src.core.enums import Currency, UserNotificationType
 from src.core.utils.iterables import chunked
 from src.core.utils.time import datetime_now
 from src.infrastructure.redis.keys import (
     SubscriptionExpiryReminderKey,
+    TrialExpiredDiscountReminderKey,
+    TrialExpiredWithoutPurchaseDiscountKey,
+    TrialNotConnectedDiscountBackfillKey,
+    TrialNotConnectedDiscountKey,
     TrialNotConnectedReminderKey,
 )
 from src.infrastructure.taskiq.broker import broker
+from src.telegram.keyboards import get_buy_keyboard
+
+CUSTOM_EMOJI_PATTERN = re.compile(
+    r'<tg-emoji\s+emoji-id=["\'](?P<id>\d+)["\'][^>]*>(?P<emoji>.*?)</tg-emoji>',
+    re.DOTALL,
+)
+
+
+def _format_plan_name(plan_name: str) -> str:
+    name = CUSTOM_EMOJI_PATTERN.sub(r"\g<emoji>", plan_name)
+    name = " ".join(name.split())
+    return name.split("|", maxsplit=1)[0].strip()
+
+
+def _format_amount(amount: Decimal) -> str:
+    if amount == amount.to_integral_value():
+        return str(int(amount))
+    return f"{amount.normalize():f}"
+
+
+def _get_rub_price(plan: PlanDto) -> Decimal | None:
+    durations = sorted(plan.durations, key=lambda duration: duration.order_index)
+    for duration in durations:
+        for price in duration.prices:
+            if price.currency == Currency.RUB:
+                return price.price
+    return None
+
+
+async def _get_discount_plan(
+    user: UserDto,
+    plan_dao: PlanDao,
+) -> PlanDto | None:
+    if user.personal_discount_plan_id is not None:
+        return await plan_dao.get_by_id(user.personal_discount_plan_id)
+
+    active_plans = await plan_dao.get_active_plans()
+    return next((plan for plan in active_plans if not plan.is_trial), None)
+
+
+async def _get_purchase_discount_plan(plan_dao: PlanDao) -> PlanDto | None:
+    active_plans = await plan_dao.get_active_plans()
+    return next(
+        (
+            plan
+            for plan in active_plans
+            if not plan.is_trial and _get_rub_price(plan) is not None
+        ),
+        None,
+    )
 
 
 async def _notify_subscriptions_expiring(
@@ -199,6 +256,400 @@ async def notify_trial_subscriptions_not_connected_task(
         notified_count += 1
 
     logger.info(f"Sent '{notified_count}' trial first-connection reminders")
+
+
+@broker.task(schedule=[{"cron": "* * * * *"}], retry_on_error=False)
+@inject(patch_module=True)
+async def grant_discount_for_trial_not_connected_task(  # noqa: C901
+    subscription_dao: FromDishka[SubscriptionDao],
+    user_dao: FromDishka[UserDao],
+    plan_dao: FromDishka[PlanDao],
+    uow: FromDishka[UnitOfWork],
+    redis: FromDishka[Redis],
+    retort: FromDishka[Retort],
+    remnawave: FromDishka[Remnawave],
+    notifier: FromDishka[Notifier],
+    pricing_service: FromDishka[PricingService],
+    i18n: FromDishka[TranslatorRunner],
+) -> None:
+    now = datetime_now()
+    start_at = now - timedelta(days=3, minutes=5)
+    end_at = now - timedelta(days=3)
+
+    trial_subscriptions = await subscription_dao.get_current_trials_created_between_any_status(
+        start_at,
+        end_at,
+    )
+    if not trial_subscriptions:
+        logger.debug("No three-day trial no-connection discounts pending")
+        return
+
+    plan = await _get_purchase_discount_plan(plan_dao)
+    if not plan:
+        logger.warning("No active non-trial plan with RUB price found for no-connection discount")
+        return
+
+    original_price = _get_rub_price(plan)
+    if original_price is None:
+        logger.warning(f"No RUB price found for plan '{plan.id}'")
+        return
+
+    granted_count = 0
+
+    for user, subscription in trial_subscriptions:
+        if subscription.id is None or subscription.created_at is None:
+            logger.warning(
+                f"Skipping three-day trial no-connection discount for subscription without "
+                f"ID or created_at: '{subscription}'"
+            )
+            continue
+
+        if user.purchase_discount >= 40:
+            logger.debug(
+                f"Skipping three-day trial no-connection discount for user "
+                f"'{user.telegram_id}': purchase discount is already '{user.purchase_discount}'"
+            )
+            continue
+
+        try:
+            remna_user = await remnawave.get_user_by_uuid(subscription.user_remna_id)
+        except Exception as e:
+            logger.exception(
+                f"Failed to fetch RemnaUser '{subscription.user_remna_id}' "
+                f"for three-day trial no-connection discount: {e}"
+            )
+            continue
+
+        if not remna_user:
+            logger.debug(
+                f"Skipping three-day trial no-connection discount: RemnaUser "
+                f"'{subscription.user_remna_id}' not found"
+            )
+            continue
+
+        first_connected_at = getattr(remna_user, "first_connected_at", None)
+        last_connected_at = getattr(remna_user, "last_connected_at", None)
+        if first_connected_at or last_connected_at:
+            continue
+
+        discount_key = retort.dump(
+            TrialNotConnectedDiscountKey(
+                subscription_id=subscription.id,
+                created_at=int(subscription.created_at.timestamp()),
+            )
+        )
+        is_first_discount = await redis.set(discount_key, "1", ex=TTL_7D, nx=True)
+        if not is_first_discount:
+            continue
+
+        user.purchase_discount = 40
+        user.purchase_discount_plan_id = None
+
+        async with uow:
+            await user_dao.update(user)
+            await uow.commit()
+
+        pricing = pricing_service.calculate(user, original_price, Currency.RUB, plan_id=plan.id)
+        await notifier.notify_user(
+            user=user,
+            payload=MessagePayloadDto(
+                i18n_key="ntf-user.discount-issued",
+                i18n_kwargs={
+                    "discount_kind": "скидка на следующую покупку",
+                    "plan_name": _format_plan_name(i18n.get(plan.name)),
+                    "original_amount": _format_amount(pricing.original_amount),
+                    "final_amount": _format_amount(pricing.final_amount),
+                    "currency": Currency.RUB.symbol,
+                },
+                reply_markup=get_buy_keyboard(),
+                disable_default_markup=True,
+                delete_after=None,
+            ),
+        )
+        granted_count += 1
+
+    logger.info(f"Granted '{granted_count}' three-day trial no-connection discounts")
+
+
+@broker.task(schedule=[{"cron": "* * * * *"}], retry_on_error=False)
+@inject(patch_module=True)
+async def backfill_discount_for_old_trial_not_connected_task(  # noqa: C901
+    subscription_dao: FromDishka[SubscriptionDao],
+    user_dao: FromDishka[UserDao],
+    plan_dao: FromDishka[PlanDao],
+    uow: FromDishka[UnitOfWork],
+    redis: FromDishka[Redis],
+    retort: FromDishka[Retort],
+    remnawave: FromDishka[Remnawave],
+    notifier: FromDishka[Notifier],
+    pricing_service: FromDishka[PricingService],
+    i18n: FromDishka[TranslatorRunner],
+) -> None:
+    backfill_key = retort.dump(TrialNotConnectedDiscountBackfillKey())
+    is_backfill_finished = await redis.get(backfill_key)
+    if is_backfill_finished:
+        logger.debug("Old trial no-connection discount backfill already finished")
+        return
+
+    cutoff = datetime_now() - timedelta(days=3)
+    trial_subscriptions = await subscription_dao.get_old_trials_without_paid_subscription(cutoff)
+
+    plan = await _get_purchase_discount_plan(plan_dao)
+    if not plan:
+        logger.warning("No active non-trial plan with RUB price found for old trial backfill")
+        return
+
+    original_price = _get_rub_price(plan)
+    if original_price is None:
+        logger.warning(f"No RUB price found for plan '{plan.id}'")
+        return
+
+    granted_count = 0
+    had_lookup_errors = False
+    processed_user_ids: set[int] = set()
+
+    for user, subscription in trial_subscriptions:
+        if user.telegram_id in processed_user_ids:
+            continue
+
+        if subscription.id is None or subscription.created_at is None:
+            logger.warning(
+                f"Skipping old trial no-connection discount for subscription without "
+                f"ID or created_at: '{subscription}'"
+            )
+            continue
+
+        if user.purchase_discount >= 40:
+            logger.debug(
+                f"Skipping old trial no-connection discount for user "
+                f"'{user.telegram_id}': purchase discount is already '{user.purchase_discount}'"
+            )
+            processed_user_ids.add(user.telegram_id)
+            continue
+
+        try:
+            remna_user = await remnawave.get_user_by_uuid(subscription.user_remna_id)
+        except Exception as e:
+            had_lookup_errors = True
+            logger.exception(
+                f"Failed to fetch RemnaUser '{subscription.user_remna_id}' "
+                f"for old trial no-connection discount: {e}"
+            )
+            continue
+
+        if not remna_user:
+            logger.debug(
+                f"Skipping old trial no-connection discount: RemnaUser "
+                f"'{subscription.user_remna_id}' not found"
+            )
+            continue
+
+        first_connected_at = getattr(remna_user, "first_connected_at", None)
+        last_connected_at = getattr(remna_user, "last_connected_at", None)
+        if first_connected_at or last_connected_at:
+            processed_user_ids.add(user.telegram_id)
+            continue
+
+        discount_key = retort.dump(
+            TrialNotConnectedDiscountKey(
+                subscription_id=subscription.id,
+                created_at=int(subscription.created_at.timestamp()),
+            )
+        )
+        is_first_discount = await redis.set(discount_key, "1", ex=TTL_7D, nx=True)
+        if not is_first_discount:
+            processed_user_ids.add(user.telegram_id)
+            continue
+
+        user.purchase_discount = 40
+        user.purchase_discount_plan_id = None
+
+        async with uow:
+            await user_dao.update(user)
+            await uow.commit()
+
+        pricing = pricing_service.calculate(user, original_price, Currency.RUB, plan_id=plan.id)
+        await notifier.notify_user(
+            user=user,
+            payload=MessagePayloadDto(
+                i18n_key="ntf-user.discount-issued",
+                i18n_kwargs={
+                    "discount_kind": "скидка на следующую покупку",
+                    "plan_name": _format_plan_name(i18n.get(plan.name)),
+                    "original_amount": _format_amount(pricing.original_amount),
+                    "final_amount": _format_amount(pricing.final_amount),
+                    "currency": Currency.RUB.symbol,
+                },
+                reply_markup=get_buy_keyboard(),
+                disable_default_markup=True,
+                delete_after=None,
+            ),
+        )
+        processed_user_ids.add(user.telegram_id)
+        granted_count += 1
+
+    if had_lookup_errors:
+        logger.warning(
+            f"Backfilled '{granted_count}' old trial no-connection discounts, "
+            "but Remnawave lookup errors occurred; backfill will retry later"
+        )
+        return
+
+    await redis.set(backfill_key, "1")
+    logger.info(f"Backfilled '{granted_count}' old trial no-connection discounts")
+
+
+@broker.task(schedule=[{"cron": "* * * * *"}], retry_on_error=False)
+@inject(patch_module=True)
+async def grant_discount_for_expired_trial_without_purchase_task(
+    subscription_dao: FromDishka[SubscriptionDao],
+    user_dao: FromDishka[UserDao],
+    plan_dao: FromDishka[PlanDao],
+    uow: FromDishka[UnitOfWork],
+    redis: FromDishka[Redis],
+    retort: FromDishka[Retort],
+    notifier: FromDishka[Notifier],
+    pricing_service: FromDishka[PricingService],
+    i18n: FromDishka[TranslatorRunner],
+) -> None:
+    now = datetime_now()
+    start_at = now - timedelta(days=3, minutes=5)
+    end_at = now - timedelta(days=3)
+
+    expired_trials = await subscription_dao.get_current_trials_expired_between_any_discount(
+        start_at,
+        end_at,
+    )
+    if not expired_trials:
+        logger.debug("No three-day expired trial no-purchase discounts pending")
+        return
+
+    plan = await _get_purchase_discount_plan(plan_dao)
+    if not plan:
+        logger.warning("No active non-trial plan with RUB price found for no-purchase discount")
+        return
+
+    original_price = _get_rub_price(plan)
+    if original_price is None:
+        logger.warning(f"No RUB price found for plan '{plan.id}'")
+        return
+
+    granted_count = 0
+
+    for user, subscription in expired_trials:
+        if subscription.id is None:
+            logger.warning(
+                f"Skipping three-day expired trial no-purchase discount for subscription without "
+                f"ID: '{subscription}'"
+            )
+            continue
+
+        if user.purchase_discount >= 40:
+            logger.debug(
+                f"Skipping three-day expired trial no-purchase discount for user "
+                f"'{user.telegram_id}': purchase discount is already '{user.purchase_discount}'"
+            )
+            continue
+
+        discount_key = retort.dump(
+            TrialExpiredWithoutPurchaseDiscountKey(
+                subscription_id=subscription.id,
+                expire_at=int(subscription.expire_at.timestamp()),
+            )
+        )
+        is_first_discount = await redis.set(discount_key, "1", ex=TTL_7D, nx=True)
+        if not is_first_discount:
+            continue
+
+        user.purchase_discount = 40
+        user.purchase_discount_plan_id = None
+
+        async with uow:
+            await user_dao.update(user)
+            await uow.commit()
+
+        pricing = pricing_service.calculate(user, original_price, Currency.RUB, plan_id=plan.id)
+        await notifier.notify_user(
+            user=user,
+            payload=MessagePayloadDto(
+                i18n_key="ntf-user.discount-issued",
+                i18n_kwargs={
+                    "discount_kind": "скидка на следующую покупку",
+                    "plan_name": _format_plan_name(i18n.get(plan.name)),
+                    "original_amount": _format_amount(pricing.original_amount),
+                    "final_amount": _format_amount(pricing.final_amount),
+                    "currency": Currency.RUB.symbol,
+                },
+                reply_markup=get_buy_keyboard(),
+                disable_default_markup=True,
+                delete_after=None,
+            ),
+        )
+        granted_count += 1
+
+    logger.info(f"Granted '{granted_count}' three-day expired trial no-purchase discounts")
+
+
+@broker.task(schedule=[{"cron": "* * * * *"}], retry_on_error=False)
+@inject(patch_module=True)
+async def notify_expired_trial_discount_task(
+    subscription_dao: FromDishka[SubscriptionDao],
+    plan_dao: FromDishka[PlanDao],
+    redis: FromDishka[Redis],
+    retort: FromDishka[Retort],
+    notifier: FromDishka[Notifier],
+    i18n: FromDishka[TranslatorRunner],
+) -> None:
+    now = datetime_now()
+    start_at = now - timedelta(minutes=20)
+    end_at = now - timedelta(minutes=15)
+
+    expired_trials = await subscription_dao.get_current_trials_expired_between(start_at, end_at)
+    if not expired_trials:
+        logger.debug("No expired trial discount reminders pending")
+        return
+
+    notified_count = 0
+
+    for user, subscription in expired_trials:
+        if subscription.id is None:
+            logger.warning(
+                f"Skipping expired trial discount reminder for subscription without ID: "
+                f"'{subscription}'"
+            )
+            continue
+
+        plan = await _get_discount_plan(user, plan_dao)
+        if not plan:
+            logger.warning(
+                f"Skipping expired trial discount reminder for user '{user.telegram_id}': "
+                "discount plan not found"
+            )
+            continue
+
+        reminder_key = retort.dump(
+            TrialExpiredDiscountReminderKey(
+                subscription_id=subscription.id,
+                expire_at=int(subscription.expire_at.timestamp()),
+            )
+        )
+        is_first_notification = await redis.set(reminder_key, "1", ex=TTL_7D, nx=True)
+        if not is_first_notification:
+            continue
+
+        await notifier.notify_user(
+            user=user,
+            payload=MessagePayloadDto(
+                i18n_key="ntf-user.expired-trial-discount",
+                i18n_kwargs={"plan_name": _format_plan_name(i18n.get(plan.name))},
+                reply_markup=get_buy_keyboard(),
+                disable_default_markup=True,
+                delete_after=None,
+            ),
+        )
+        notified_count += 1
+
+    logger.info(f"Sent '{notified_count}' expired trial discount reminders")
 
 
 @broker.task

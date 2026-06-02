@@ -46,6 +46,29 @@ class SubscriptionDao(Protocol):
         end_at: datetime,
     ) -> list[tuple[UserDto, SubscriptionDto]]: ...
 
+    async def get_current_trials_created_between_any_status(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]: ...
+
+    async def get_old_trials_without_paid_subscription(
+        self,
+        cutoff: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]: ...
+
+    async def get_current_trials_expired_between(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]: ...
+
+    async def get_current_trials_expired_between_any_discount(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]: ...
+
     async def count_total_trials(self) -> int: ...
 
     async def count_converted_from_trial(self) -> int: ...

@@ -47,6 +47,33 @@ class TrialNotConnectedReminderKey(StorageKey, prefix="trial_not_connected_remin
     created_at: int
 
 
+@dataclass(frozen=True)
+class TrialNotConnectedDiscountKey(StorageKey, prefix="trial_not_connected_discount"):
+    subscription_id: int
+    created_at: int
+
+
+class TrialNotConnectedDiscountBackfillKey(
+    StorageKey,
+    prefix="trial_not_connected_discount_backfill",
+): ...
+
+
+@dataclass(frozen=True)
+class TrialExpiredDiscountReminderKey(StorageKey, prefix="trial_expired_discount_reminder"):
+    subscription_id: int
+    expire_at: int
+
+
+@dataclass(frozen=True)
+class TrialExpiredWithoutPurchaseDiscountKey(
+    StorageKey,
+    prefix="trial_expired_without_purchase_discount",
+):
+    subscription_id: int
+    expire_at: int
+
+
 class PaymentWaitlistKey(StorageKey, prefix="payment_waitlist"): ...
 
 

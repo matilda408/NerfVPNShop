@@ -116,6 +116,7 @@ def get_renew_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             text="btn-goto.subscription-renew",
             callback_data=f"{GOTO_PREFIX}{PAYMENT_PREFIX}{PurchaseType.RENEW}",
+            style=ButtonStyle.PRIMARY,
         ),
     )
     return builder.as_markup()
@@ -123,11 +124,14 @@ def get_renew_keyboard() -> InlineKeyboardMarkup:
 
 def get_buy_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    button = InlineKeyboardButton(
+        text="btn-subscription.new",
+        callback_data=f"{GOTO_PREFIX}{PAYMENT_PREFIX}{PurchaseType.NEW}",
+        style=ButtonStyle.PRIMARY,
+    )
+    button.icon_custom_emoji_id = "5258204546391351475"
     builder.row(
-        InlineKeyboardButton(
-            text="btn-goto.subscription",
-            callback_data=f"{GOTO_PREFIX}{PAYMENT_PREFIX}{PurchaseType.NEW}",
-        ),
+        button,
     )
     return builder.as_markup()
 

@@ -63,6 +63,14 @@ ntf-user =
     .allowed-plans-empty = ❌ <i>Нет доступных планов для предоставления доступа.</i>
     .message-success = ✅ <i>Сообщение успешно отправлено.</i>
     .message-failed = ❌ <i>Не удалось отправить сообщение.</i>
+    .discount-issued =
+        Вам выдана { $discount_kind } на тариф «{ $plan_name }». Убедитесь в лучшей скорости и свободном интернете. 🚀🌐
+
+        <blockquote>🎯 <s>{ $original_amount }{ $currency }</s> > { $final_amount }{ $currency }</blockquote>
+    .expired-trial-discount =
+        <b>Мы сохранили для вас персональную скидку на тариф «{ $plan_name }»
+
+        Скидка будет действовать ещё 24 часа. После этого стоимость вернётся к обычной.</b>
 
     .sync-already = ✅ <i>Данные подписки идентичны.</i>
     .sync-missing-data = ⚠️ <i>Синхронизация невозможна. Данные подписки отсутствуют в панели и в боте.</i>

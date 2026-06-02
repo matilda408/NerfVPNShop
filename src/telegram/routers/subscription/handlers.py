@@ -45,9 +45,32 @@ class CachedPaymentData(TypedDict):
     final_pricing: str
 
 
-async def on_subscription_start(start_data: object, dialog_manager: DialogManager) -> None:
+@inject
+async def on_subscription_start(
+    start_data: object,
+    dialog_manager: DialogManager,
+    retort: FromDishka[Retort],
+    subscription_dao: FromDishka[SubscriptionDao],
+    payment_gateway_dao: FromDishka[PaymentGatewayDao],
+    notifier: FromDishka[Notifier],
+    match_plan: FromDishka[MatchPlan],
+    get_available_plans: FromDishka[GetAvailablePlans],
+) -> None:
     if isinstance(start_data, dict) and "purchase_type" in start_data:
-        dialog_manager.dialog_data["purchase_type"] = PurchaseType(start_data["purchase_type"])
+        purchase_type = PurchaseType(start_data["purchase_type"])
+        dialog_manager.dialog_data["purchase_type"] = purchase_type
+
+        if start_data.get("open_purchase_flow"):
+            await _open_purchase_flow(
+                purchase_type=purchase_type,
+                dialog_manager=dialog_manager,
+                retort=retort,
+                subscription_dao=subscription_dao,
+                payment_gateway_dao=payment_gateway_dao,
+                notifier=notifier,
+                match_plan=match_plan,
+                get_available_plans=get_available_plans,
+            )
 
 
 @inject
@@ -144,6 +167,29 @@ async def on_purchase_type_select(
     notifier: FromDishka[Notifier],
     match_plan: FromDishka[MatchPlan],
     get_available_plans: FromDishka[GetAvailablePlans],
+) -> None:
+    await _open_purchase_flow(
+        purchase_type=purchase_type,
+        dialog_manager=dialog_manager,
+        retort=retort,
+        subscription_dao=subscription_dao,
+        payment_gateway_dao=payment_gateway_dao,
+        notifier=notifier,
+        match_plan=match_plan,
+        get_available_plans=get_available_plans,
+    )
+
+
+async def _open_purchase_flow(
+    *,
+    purchase_type: PurchaseType,
+    dialog_manager: DialogManager,
+    retort: Retort,
+    subscription_dao: SubscriptionDao,
+    payment_gateway_dao: PaymentGatewayDao,
+    notifier: Notifier,
+    match_plan: MatchPlan,
+    get_available_plans: GetAvailablePlans,
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     plans: list[PlanDto] = await get_available_plans.system(user)

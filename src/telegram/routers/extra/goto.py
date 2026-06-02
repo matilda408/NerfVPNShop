@@ -10,7 +10,7 @@ from src.application.common import Notifier
 from src.application.dto import UserDto
 from src.application.use_cases.user.queries.plans import GetAvailablePlanByCode
 from src.core.constants import GOTO_PREFIX, PAYMENT_PREFIX, TARGET_TELEGRAM_ID
-from src.core.enums import Deeplink
+from src.core.enums import Deeplink, PurchaseType
 from src.telegram.states import DashboardUser, MainMenu, Subscription, state_from_string
 
 router = Router(name=__name__)
@@ -22,13 +22,24 @@ async def on_goto(callback: CallbackQuery, dialog_manager: DialogManager, user: 
     data = callback.data.removeprefix(GOTO_PREFIX)  # type: ignore[union-attr]
 
     if data.startswith(PAYMENT_PREFIX):
-        # TODO: Implement a transition to a specific type of payment
-        # There shit with data...
+        purchase_type = PurchaseType(data.removeprefix(PAYMENT_PREFIX))
+        if isinstance(callback.message, Message):
+            try:
+                await callback.message.delete()
+            except Exception as e:
+                logger.debug(
+                    f"{user.log} Failed to delete payment notification message: '{e}'"
+                )
+
         await dialog_manager.bg(
             user_id=user.telegram_id,
             chat_id=user.telegram_id,
         ).start(
             state=Subscription.MAIN,
+            data={
+                "purchase_type": purchase_type.value,
+                "open_purchase_flow": True,
+            },
             mode=StartMode.RESET_STACK,
             show_mode=ShowMode.DELETE_AND_SEND,
         )

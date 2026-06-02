@@ -122,7 +122,7 @@ class SubscriptionExpiresEvent(UserEvent):
                 "value": self.hour or self.day,
             },
             reply_markup=keyboard,
-            disable_default_markup=False,
+            disable_default_markup=True,
             delete_after=None,
         )
 
