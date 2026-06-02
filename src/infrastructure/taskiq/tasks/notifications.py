@@ -89,9 +89,12 @@ async def _get_purchase_discount_plan(
         if not plan.is_trial and _get_rub_price(plan) is not None
     ]
 
+    monthly_plan = next((plan for plan in eligible_plans if _has_monthly_duration(plan)), None)
+    if monthly_plan:
+        return monthly_plan
+
     return next(
-        (plan for plan in eligible_plans if _has_monthly_duration(plan)),
-        next((plan for plan in eligible_plans if _is_monthly_plan_name(i18n.get(plan.name))), None),
+        (plan for plan in eligible_plans if _is_monthly_plan_name(i18n.get(plan.name))),
         None,
     )
 
