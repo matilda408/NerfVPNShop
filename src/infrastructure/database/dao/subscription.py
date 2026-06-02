@@ -8,6 +8,7 @@ from loguru import logger
 from redis.asyncio import Redis
 from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from src.application.common.dao import SubscriptionDao, UserDao
 from src.application.dto import PlanSubStatsDto, SubscriptionDto, SubscriptionStatsDto, UserDto
@@ -281,6 +282,162 @@ class SubscriptionDaoImpl(SubscriptionDao, BaseDaoImpl):
         logger.debug(
             f"Retrieved '{len(result)}' current trial subscriptions created between "
             f"'{start_at}' and '{end_at}'"
+        )
+        return result
+
+    async def get_current_trials_created_between_any_status(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]:
+        stmt = (
+            select(User, Subscription)
+            .join(Subscription, User.current_subscription_id == Subscription.id)
+            .where(
+                Subscription.status.in_(
+                    [
+                        SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.EXPIRED,
+                    ]
+                ),
+                Subscription.is_trial.is_(True),
+                Subscription.created_at >= start_at,
+                Subscription.created_at <= end_at,
+                User.is_blocked.is_(False),
+                User.is_bot_blocked.is_(False),
+            )
+            .order_by(Subscription.created_at.asc())
+        )
+
+        rows = await self.session.execute(stmt)
+        result = [
+            (self._convert_user_to_dto(user), self._convert_to_dto(subscription))
+            for user, subscription in rows.all()
+        ]
+
+        logger.debug(
+            f"Retrieved '{len(result)}' current trial subscriptions created between "
+            f"'{start_at}' and '{end_at}' regardless of active/expired status"
+        )
+        return result
+
+    async def get_old_trials_without_paid_subscription(
+        self,
+        cutoff: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]:
+        paid_subscription = aliased(Subscription)
+        paid_subscription_exists = (
+            select(paid_subscription.id)
+            .where(
+                paid_subscription.user_telegram_id == User.telegram_id,
+                paid_subscription.is_trial.is_(False),
+                paid_subscription.status != SubscriptionStatus.DELETED,
+            )
+            .exists()
+        )
+
+        stmt = (
+            select(User, Subscription)
+            .join(Subscription, Subscription.user_telegram_id == User.telegram_id)
+            .where(
+                Subscription.status.in_(
+                    [
+                        SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.EXPIRED,
+                    ]
+                ),
+                Subscription.is_trial.is_(True),
+                Subscription.created_at <= cutoff,
+                User.purchase_discount < 40,
+                User.is_blocked.is_(False),
+                User.is_bot_blocked.is_(False),
+                ~paid_subscription_exists,
+            )
+            .order_by(User.telegram_id.asc(), Subscription.created_at.desc())
+        )
+
+        rows = await self.session.execute(stmt)
+        result = [
+            (self._convert_user_to_dto(user), self._convert_to_dto(subscription))
+            for user, subscription in rows.all()
+        ]
+
+        logger.debug(
+            f"Retrieved '{len(result)}' old trial subscriptions created before "
+            f"'{cutoff}' for users without paid subscriptions"
+        )
+        return result
+
+    async def get_current_trials_expired_between(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]:
+        stmt = (
+            select(User, Subscription)
+            .join(Subscription, User.current_subscription_id == Subscription.id)
+            .where(
+                Subscription.status.in_(
+                    [
+                        SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.EXPIRED,
+                    ]
+                ),
+                Subscription.is_trial.is_(True),
+                Subscription.expire_at >= start_at,
+                Subscription.expire_at <= end_at,
+                User.personal_discount > 0,
+                User.is_blocked.is_(False),
+                User.is_bot_blocked.is_(False),
+            )
+            .order_by(Subscription.expire_at.asc())
+        )
+
+        rows = await self.session.execute(stmt)
+        result = [
+            (self._convert_user_to_dto(user), self._convert_to_dto(subscription))
+            for user, subscription in rows.all()
+        ]
+
+        logger.debug(
+            f"Retrieved '{len(result)}' current trial subscriptions expired between "
+            f"'{start_at}' and '{end_at}' with personal discounts"
+        )
+        return result
+
+    async def get_current_trials_expired_between_any_discount(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+    ) -> list[tuple[UserDto, SubscriptionDto]]:
+        stmt = (
+            select(User, Subscription)
+            .join(Subscription, User.current_subscription_id == Subscription.id)
+            .where(
+                Subscription.status.in_(
+                    [
+                        SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.EXPIRED,
+                    ]
+                ),
+                Subscription.is_trial.is_(True),
+                Subscription.expire_at >= start_at,
+                Subscription.expire_at <= end_at,
+                User.is_blocked.is_(False),
+                User.is_bot_blocked.is_(False),
+            )
+            .order_by(Subscription.expire_at.asc())
+        )
+
+        rows = await self.session.execute(stmt)
+        result = [
+            (self._convert_user_to_dto(user), self._convert_to_dto(subscription))
+            for user, subscription in rows.all()
+        ]
+
+        logger.debug(
+            f"Retrieved '{len(result)}' current trial subscriptions expired between "
+            f"'{start_at}' and '{end_at}' regardless of discount status"
         )
         return result
 
