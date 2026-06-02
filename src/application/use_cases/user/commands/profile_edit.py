@@ -111,16 +111,20 @@ class DiscountNotificationMixin:
             if not plan.is_trial and self._get_rub_price(plan) is not None
         ]
 
-        return next(
+        monthly_plan = next(
             (plan for plan in eligible_plans if self._has_monthly_duration(plan)),
-            next(
-                (
-                    plan
-                    for plan in eligible_plans
-                    if self._is_monthly_plan_name(self.i18n.get(plan.name))
-                ),
-                None,
+            None,
+        )
+        if monthly_plan:
+            return monthly_plan
+
+        return next(
+            (
+                plan
+                for plan in eligible_plans
+                if self._is_monthly_plan_name(self.i18n.get(plan.name))
             ),
+            None,
         )
 
     def _has_monthly_duration(self, plan: PlanDto) -> bool:
