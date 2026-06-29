@@ -49,7 +49,7 @@ INSTRUCTION_EMPTY_LINK = "https://example.com"
 INSTRUCTION_DOWNLOAD_URLS = {
     "ios": "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
     "android": "https://play.google.com/store/apps/details?id=com.happproxy&pli=1",
-    "windows": "https://github.com/pluralplay/FlClashX/releases/latest/download/FlClashX-windows-amd64-setup.exe",
+    "windows": "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe",
     "macos": "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
 }
 
