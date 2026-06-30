@@ -47,10 +47,12 @@ from .handlers import (
 
 INSTRUCTION_EMPTY_LINK = "https://example.com"
 INSTRUCTION_DOWNLOAD_URLS = {
-    "ios": "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
-    "android": "https://play.google.com/store/apps/details?id=com.happproxy&pli=1",
+    "ios": "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215",
+    "iosru": "https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643",
+    "android": "https://play.google.com/store/apps/details?id=com.happproxy",
     "windows": "https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe",
-    "macos": "https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973",
+    "macos": "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215",
+    "macosru": "https://apps.apple.com/ru/app/happ-proxy-utility/id6783623643",
 }
 
 menu = Window(
@@ -291,18 +293,24 @@ instruction = Window(
 )
 
 
-def instruction_platform_window(state: State, download_url: str) -> Window:
+def instruction_platform_window(
+    state: State,
+    download_buttons: tuple[tuple[str, str, str], ...],
+) -> Window:
     return Window(
         Banner(BannerName.HELP),
         I18nFormat("msg-menu-instruction-platform"),
-        Row(
-            IconUrl(
-                text=I18nFormat("btn-instruction.download"),
-                id="download_app",
-                url=Format(download_url),
-                icon_custom_emoji_id="5258336354642697821",
-            ),
-        ),
+        *[
+            Row(
+                IconUrl(
+                    text=I18nFormat(text_key),
+                    id=button_id,
+                    url=Format(download_url),
+                    icon_custom_emoji_id="5258336354642697821",
+                ),
+            )
+            for button_id, text_key, download_url in download_buttons
+        ],
         Row(
             IconUrl(
                 text=I18nFormat("btn-instruction.connect"),
@@ -328,19 +336,53 @@ def instruction_platform_window(state: State, download_url: str) -> Window:
 
 instruction_ios = instruction_platform_window(
     state=MainMenu.INSTRUCTION_IOS,
-    download_url=INSTRUCTION_DOWNLOAD_URLS["ios"],
+    download_buttons=(
+        (
+            "download_app_ios_ru",
+            "btn-instruction.download_ru",
+            INSTRUCTION_DOWNLOAD_URLS["iosru"],
+        ),
+        (
+            "download_app_ios_global",
+            "btn-instruction.download_global",
+            INSTRUCTION_DOWNLOAD_URLS["ios"],
+        ),
+    ),
 )
 instruction_android = instruction_platform_window(
     state=MainMenu.INSTRUCTION_ANDROID,
-    download_url=INSTRUCTION_DOWNLOAD_URLS["android"],
+    download_buttons=(
+        (
+            "download_app_android",
+            "btn-instruction.download",
+            INSTRUCTION_DOWNLOAD_URLS["android"],
+        ),
+    ),
 )
 instruction_windows = instruction_platform_window(
     state=MainMenu.INSTRUCTION_WINDOWS,
-    download_url=INSTRUCTION_DOWNLOAD_URLS["windows"],
+    download_buttons=(
+        (
+            "download_app_windows",
+            "btn-instruction.download",
+            INSTRUCTION_DOWNLOAD_URLS["windows"],
+        ),
+    ),
 )
 instruction_macos = instruction_platform_window(
     state=MainMenu.INSTRUCTION_MACOS,
-    download_url=INSTRUCTION_DOWNLOAD_URLS["macos"],
+    download_buttons=(
+        (
+            "download_app_macos_ru",
+            "btn-instruction.download_ru",
+            INSTRUCTION_DOWNLOAD_URLS["macosru"],
+        ),
+        (
+            "download_app_macos_global",
+            "btn-instruction.download_global",
+            INSTRUCTION_DOWNLOAD_URLS["macos"],
+        ),
+    ),
 )
 
 device_confirm_delete = Window(
