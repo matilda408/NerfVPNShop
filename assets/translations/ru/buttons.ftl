@@ -74,6 +74,8 @@ btn-instruction =
     .windows = Windows
     .macos = MacOS
     .download = 1. Скачать приложение
+    .download_ru = 1. Скачать приложение(RU AppStore)
+    .download_global = 1. Скачать приложение(Global AppStore)
     .connect = 2. Подключиться
     .back = Вернуться назад
 
